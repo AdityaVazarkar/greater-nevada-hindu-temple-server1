@@ -170,9 +170,34 @@ app.post("/create-event", authenticateJWT, isOwner, async (req, res) => {
 });
 
 // Update Event route (Only for owner)
+// app.put("/update-event/:id", authenticateJWT, isOwner, async (req, res) => {
+//   try {
+//     await Event.findByIdAndUpdate(req.params.id, req.body);
+//     res.send({ message: "Event updated successfully" });
+//   } catch (error) {
+//     res.status(500).send({ error: error.message });
+//   }
+// });
+
+// // Delete Event route (Only for owner)
+// app.delete("/delete-event/:id", authenticateJWT, isOwner, async (req, res) => {
+//   try {
+//     await Event.findByIdAndDelete(req.params.id);
+//     res.send({ message: "Event deleted successfully" });
+//   } catch (error) {
+//     res.status(500).send({ error: error.message });
+//   }
+// });
+
+// Update Event route (Only for owner)
 app.put("/update-event/:id", authenticateJWT, isOwner, async (req, res) => {
   try {
-    await Event.findByIdAndUpdate(req.params.id, req.body);
+    const event = await Event.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+    });
+    if (!event) {
+      return res.status(404).send({ error: "Event not found" });
+    }
     res.send({ message: "Event updated successfully" });
   } catch (error) {
     res.status(500).send({ error: error.message });
@@ -182,7 +207,10 @@ app.put("/update-event/:id", authenticateJWT, isOwner, async (req, res) => {
 // Delete Event route (Only for owner)
 app.delete("/delete-event/:id", authenticateJWT, isOwner, async (req, res) => {
   try {
-    await Event.findByIdAndDelete(req.params.id);
+    const event = await Event.findByIdAndDelete(req.params.id);
+    if (!event) {
+      return res.status(404).send({ error: "Event not found" });
+    }
     res.send({ message: "Event deleted successfully" });
   } catch (error) {
     res.status(500).send({ error: error.message });
@@ -258,6 +286,47 @@ app.post("/contact-us", async (req, res) => {
       .json({ message: "Your message has been submitted successfully!" });
   } catch (error) {
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// MongoDB Schema for Director
+const DirectorSchema = new mongoose.Schema({
+  name: String,
+  position: String,
+  image: String, // This will store the image URL or base64 encoded image data
+});
+
+const Director = mongoose.model("Director", DirectorSchema);
+
+// Route to save a new director
+app.post("/add-director", async (req, res) => {
+  const { name, position, image } = req.body;
+
+  if (!name || !position || !image) {
+    return res.status(400).json({ error: "Please provide all fields" });
+  }
+
+  const newDirector = new Director({
+    name,
+    position,
+    image,
+  });
+
+  try {
+    await newDirector.save();
+    res.status(201).json({ message: "Director added successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Error saving director data" });
+  }
+});
+
+// Route to fetch all directors
+app.get("/directors", async (req, res) => {
+  try {
+    const directors = await Director.find({});
+    res.status(200).json(directors);
+  } catch (error) {
+    res.status(500).json({ error: "Error fetching directors" });
   }
 });
 

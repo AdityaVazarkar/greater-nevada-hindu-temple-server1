@@ -6,6 +6,7 @@ import bodyParser from "body-parser";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import dotenv from "dotenv";
+import multer from "multer";
 
 dotenv.config(); // Load environment variables from .env
 
@@ -21,6 +22,8 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 app.use(cors());
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json({ limit: "50mb" })); // Increase limit for JSON bodies
+app.use(bodyParser.urlencoded({ limit: "50mb", extended: true })); // Increase limit for URL-encoded bodies
 
 // MongoDB connection
 mongoose.connect(MONGO_URI, {
@@ -289,27 +292,36 @@ app.post("/contact-us", async (req, res) => {
   }
 });
 
+
+const storage = multer.memoryStorage(); // You can change this to a disk storage method if you want to store files on disk
+const upload = multer({ storage: storage, limits: { fileSize: 10 * 1024 * 1024 } }); // Set limit to 10MB
+
 // MongoDB Schema for Director
 const DirectorSchema = new mongoose.Schema({
   name: String,
   position: String,
-  image: String, // This will store the image URL or base64 encoded image data
+  image: String, // This will store the image URL or file path
 });
 
 const Director = mongoose.model("Director", DirectorSchema);
 
-// Route to save a new director
-app.post("/add-director", async (req, res) => {
-  const { name, position, image } = req.body;
+// Route to save a new director with file upload
+app.post("/add-director", upload.single("image"), async (req, res) => {
+  const { name, position } = req.body;
+  const image = req.file; // This will contain the uploaded image file
 
   if (!name || !position || !image) {
     return res.status(400).json({ error: "Please provide all fields" });
   }
 
+  // You can store the image file to disk or upload it to a cloud storage provider like AWS S3, etc.
+  // Here, we store the image buffer as a base64 string for demonstration purposes
+  const imageBuffer = image.buffer.toString("base64");
+
   const newDirector = new Director({
     name,
     position,
-    image,
+    image: imageBuffer,
   });
 
   try {

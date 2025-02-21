@@ -85,10 +85,31 @@ const ContactUsSchema = new mongoose.Schema({
   message: String,
 });
 
+const pledgeSchema = new mongoose.Schema({
+  salutation: String,
+  firstName: String,
+  lastName: String,
+  email: String,
+  phone: String,
+  address1: String,
+  address2: String,
+  city: String,
+  state: String,
+  zip: String,
+  country: String,
+  pledgeType: String,
+  fulfillDate: String,
+  amount: Number,
+  anonymity: String,
+  pledgeDate: String,
+  signature: String,
+});
+
 const Event = mongoose.model("Event", EventSchema);
 const User = mongoose.model("User", UserSchema);
 const Volunteer = mongoose.model("Volunteer", VolunteerSchema);
 const ContactUs = mongoose.model("ContactUs", ContactUsSchema);
+const Pledge = mongoose.model("Pledge", pledgeSchema);
 
 // JWT Middleware (for protected routes)
 const authenticateJWT = (req, res, next) => {
@@ -170,27 +191,6 @@ app.post("/create-event", authenticateJWT, isOwner, async (req, res) => {
   }
 });
 
-// Update Event route (Only for owner)
-// app.put("/update-event/:id", authenticateJWT, isOwner, async (req, res) => {
-//   try {
-//     await Event.findByIdAndUpdate(req.params.id, req.body);
-//     res.send({ message: "Event updated successfully" });
-//   } catch (error) {
-//     res.status(500).send({ error: error.message });
-//   }
-// });
-
-// // Delete Event route (Only for owner)
-// app.delete("/delete-event/:id", authenticateJWT, isOwner, async (req, res) => {
-//   try {
-//     await Event.findByIdAndDelete(req.params.id);
-//     res.send({ message: "Event deleted successfully" });
-//   } catch (error) {
-//     res.status(500).send({ error: error.message });
-//   }
-// });
-
-// Update Event route (Only for owner)
 app.put("/update-event/:id", authenticateJWT, isOwner, async (req, res) => {
   try {
     const event = await Event.findByIdAndUpdate(req.params.id, req.body, {
@@ -290,29 +290,32 @@ app.post("/contact-us", async (req, res) => {
   }
 });
 
-// Add Director Schema
+// Direcotor
+import multer from "multer";
 const DirectorSchema = new mongoose.Schema({
-  name: String,
-  position: String,
-  image: String, // Store image URL (or path if storing locally)
+  name: { type: String, required: true },
+  position: {
+    type: String,
+    required: true,
+    enum: ["Esteemed Donors", "Board Of Trustees", "Board of Directors"],
+  },
+  image: { type: String, required: true },
 });
 
 const Director = mongoose.model("Director", DirectorSchema);
 
 // Middleware for file upload (image)
-import multer from "multer";
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "uploads/"); // Directory to save images
+    cb(null, "uploads/");
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname); // Unique file name
+    cb(null, Date.now() + "-" + file.originalname);
   },
 });
-
 const upload = multer({ storage });
 
-// Add Director route (Only for owner)
+// Add Director (Only for owner)
 app.post(
   "/add-director",
   authenticateJWT,
@@ -320,240 +323,33 @@ app.post(
   upload.single("image"),
   async (req, res) => {
     const { name, position } = req.body;
-    const image = req.file ? req.file.path : null; // Path to the uploaded image
+    const image = req.file ? req.file.path : null;
 
     if (!name || !position || !image) {
-      return res
-        .status(400)
-        .send({ error: "All fields are required, including the image" });
+      return res.status(400).json({ error: "All fields are required" });
     }
 
     try {
-      const newDirector = new Director({
-        name,
-        position,
-        image,
-      });
+      const newDirector = new Director({ name, position, image });
       await newDirector.save();
-      res.status(201).send({ message: "Director added successfully" });
+      res.status(201).json({ message: "Director added successfully" });
     } catch (error) {
-      res.status(500).send({ error: error.message });
+      res.status(500).json({ error: error.message });
     }
   }
 );
 
-// Get Directors route (Public access)
+// Get Directors (Public access)
 app.get("/directors", async (req, res) => {
   try {
-    const directors = await Director.find({}); // Add validation for event creation
-    const validateEvent = (req, res, next) => {
-      const { title, description, date, time, venue } = req.body;
-      if (!title || !description || !date || !time || !venue) {
-        return res.status(400).send({ error: "All fields are required" });
-      }
-      next();
-    };
-
-    // Create Event route (Only for owner)
-    app.post(
-      "/create-event",
-      authenticateJWT,
-      isOwner,
-      validateEvent,
-      async (req, res) => {
-        const { title, description, date, time, venue } = req.body;
-        const createdBy = req.user.username;
-
-        // Create new event with the provided time
-        const newEvent = new Event({
-          title,
-          description,
-          date,
-          time,
-          createdBy,
-          venue,
-        });
-
-        try {
-          await newEvent.save();
-          res.status(201).send({ message: "Event created successfully" });
-        } catch (error) {
-          res.status(500).send({ error: error.message });
-        }
-      }
-    );
-
-    // Add validation for event update
-    const validateEventUpdate = (req, res, next) => {
-      const { title, description, date, time, venue } = req.body;
-      if (!title && !description && !date && !time && !venue) {
-        return res
-          .status(400)
-          .send({ error: "At least one field is required" });
-      }
-      next();
-    };
-
-    // Update Event route (Only for owner)
-    app.put(
-      "/update-event/:id",
-      authenticateJWT,
-      isOwner,
-      validateEventUpdate,
-      async (req, res) => {
-        try {
-          const event = await Event.findByIdAndUpdate(req.params.id, req.body, {
-            new: true,
-          });
-          if (!event) {
-            return res.status(404).send({ error: "Event not found" });
-          }
-          res.send({ message: "Event updated successfully" });
-        } catch (error) {
-          res.status(500).send({ error: error.message });
-        }
-      }
-    );
-
-    // Add validation for volunteer data
-    const validateVolunteer = (req, res, next) => {
-      const { name, email, phone, address, interest, message } = req.body;
-      if (!name || !email || !phone || !address || !interest || !message) {
-        return res.status(400).send({ error: "All fields are required" });
-      }
-      next();
-    };
-
-    // Save Volunteer Data (Post route)
-    app.post("/save-volunteer", validateVolunteer, async (req, res) => {
-      const { name, email, phone, address, interest, message } = req.body;
-
-      const existingVolunteer = await Volunteer.findOne({ email });
-      if (existingVolunteer) {
-        return res
-          .status(400)
-          .json({ error: "Volunteer with this email already exists" });
-      }
-
-      try {
-        const newVolunteer = new Volunteer({
-          name,
-          email,
-          phone,
-          address,
-          interest,
-          message,
-        });
-        await newVolunteer.save();
-        res.status(200).json({ message: "Volunteer data saved successfully" });
-      } catch (error) {
-        res.status(500).json({ error: "Internal Server Error" });
-      }
-    });
-
-    // Add validation for contact us data
-    const validateContactUs = (req, res, next) => {
-      const { name, email, message } = req.body;
-      if (!name || !email || !message) {
-        return res.status(400).send({ error: "All fields are required" });
-      }
-      next();
-    };
-
-    // Save Contact Us Data (Post route)
-    app.post("/contact-us", validateContactUs, async (req, res) => {
-      const { name, email, message } = req.body;
-
-      try {
-        const newContactUs = new ContactUs({
-          name,
-          email,
-          message,
-        });
-        await newContactUs.save();
-        res
-          .status(200)
-          .json({ message: "Your message has been submitted successfully!" });
-      } catch (error) {
-        res.status(500).json({ error: "Internal Server Error" });
-      }
-    });
-
-    // Add validation for director data
-    const validateDirector = (req, res, next) => {
-      const { name, position } = req.body;
-      if (!name || !position) {
-        return res.status(400).send({ error: "All fields are required" });
-      }
-      next();
-    };
-
-    // Add Director route (Only for owner)
-    app.post(
-      "/add-director",
-      authenticateJWT,
-      isOwner,
-      upload.single("image"),
-      validateDirector,
-      async (req, res) => {
-        const { name, position } = req.body;
-        const image = req.file ? req.file.path : null; // Path to the uploaded image
-        const imagePath = req.file ? `uploads/${req.file.filename}` : null;
-
-        if (!image) {
-          return res.status(400).send({ error: "Image is required" });
-        }
-
-        try {
-          const newDirector = new Director({
-            name,
-            position,
-            image,
-          });
-          await newDirector.save();
-          res.status(201).send({ message: "Director added successfully" });
-        } catch (error) {
-          res.status(500).send({ error: error.message });
-        }
-      }
-    );
-    res.send(directors);
+    const directors = await Director.find({});
+    res.json(directors);
   } catch (error) {
-    res.status(500).send({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Update Director route (Only for owner)
-// Update Director route (Only for owner)
-app.put(
-  "/update-director/:id",
-  authenticateJWT,
-  isOwner,
-  upload.single("image"), // Optional: If the owner wants to upload a new image
-  async (req, res) => {
-    const { name, position } = req.body;
-    const image = req.file ? req.file.path : null; // New image path if provided
-
-    try {
-      const director = await Director.findById(req.params.id);
-      if (!director) {
-        return res.status(404).send({ error: "Director not found" });
-      }
-
-      // Update fields with the provided data
-      director.name = name || director.name;
-      director.position = position || director.position;
-      if (image) director.image = image; // Update the image only if a new one is uploaded
-
-      await director.save();
-      res.send({ message: "Director updated successfully" });
-    } catch (error) {
-      res.status(500).send({ error: error.message });
-    }
-  }
-);
-
-// Delete Director route (Only for owner)
+// Delete Director (Only for owner)
 app.delete(
   "/delete-director/:id",
   authenticateJWT,
@@ -562,18 +358,101 @@ app.delete(
     try {
       const director = await Director.findByIdAndDelete(req.params.id);
       if (!director) {
-        return res.status(404).send({ error: "Director not found" });
+        return res.status(404).json({ error: "Director not found" });
       }
-      res.send({ message: "Director deleted successfully" });
+      res.json({ message: "Director deleted successfully" });
     } catch (error) {
-      res.status(500).send({ error: error.message });
+      res.status(500).json({ error: error.message });
     }
   }
 );
 
+//Pledge
+
+app.post("/pledge", async (req, res) => {
+  try {
+    const newPledge = new Pledge(req.body);
+    await newPledge.save();
+    res.status(201).json({ message: "Pledge submitted successfully!" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all pledges
+app.get("/pledges", async (req, res) => {
+  try {
+    const pledges = await Pledge.find();
+    res.status(200).json(pledges);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+//delete plages
+app.delete("/pledges/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await Pledge.findByIdAndDelete(id);
+    res.status(200).json({ message: "Pledge deleted successfully!" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+//Subscribe
+
+const EmailSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true }, // Ensure uniqueness
+});
+
+const Email = mongoose.model("Email", EmailSchema);
+
+app.post("/subscribe", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    const existingEmail = await Email.findOne({ email });
+    if (existingEmail) {
+      return res.status(400).json({ message: "Email is already subscribed!" }); // Send the same message
+    }
+
+    const newEmail = new Email({ email });
+    await newEmail.save();
+
+    res.status(201).json({ message: "Subscription successful!" });
+  } catch (error) {
+    console.error("Subscription error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.get("/subscribers", async (req, res) => {
+  try {
+    const subscribers = await Email.find();
+    res.status(200).json(subscribers);
+  } catch (error) {
+    console.error("Error fetching subscribers:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+app.delete("/unsubscribe/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const deletedEmail = await Email.findOneAndDelete({ email });
+
+    if (!deletedEmail) {
+      return res.status(404).json({ message: "Email not found" });
+    }
+
+    res.status(200).json({ message: "Unsubscribed successfully!" });
+  } catch (error) {
+    console.error("Error unsubscribing email:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
-  // console.log(
-  //   `Server is running on https://greater-nevada-hindu-temple-server1.onrender.com`
-  // );
 });

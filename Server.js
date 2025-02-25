@@ -31,29 +31,6 @@ mongoose.connect(MONGO_URI, {
 
 const db = mongoose.connection;
 db.on("error", console.error.bind(console, "connection error:"));
-db.once("open", () => {
-  console.log("Connected to MongoDB");
-
-  // Check if the owner exists, and create one if not
-  User.findOne({ username: "owner" }).then(async (owner) => {
-    if (!owner) {
-      const hashedPassword = await bcrypt.hash("owner@123", 10);
-      const newOwner = new User({
-        username: "owner",
-        password: hashedPassword,
-      });
-
-      newOwner
-        .save()
-        .then(() => {
-          console.log("Owner created successfully");
-        })
-        .catch((err) => {
-          console.error("Error creating owner:", err);
-        });
-    }
-  });
-});
 
 // MongoDB Schemas and Models
 const EventSchema = new mongoose.Schema({
@@ -68,6 +45,7 @@ const EventSchema = new mongoose.Schema({
 const UserSchema = new mongoose.Schema({
   username: String,
   password: String,
+  role: { type: String, enum: ["owner", "admin", "user"], default: "user" },
 });
 
 const VolunteerSchema = new mongoose.Schema({
@@ -112,50 +90,126 @@ const ContactUs = mongoose.model("ContactUs", ContactUsSchema);
 const Pledge = mongoose.model("Pledge", pledgeSchema);
 
 // JWT Middleware (for protected routes)
-const authenticateJWT = (req, res, next) => {
+
+const generateToken = (userId) => {
+  return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "1h" });
+};
+
+// 🛡️ Middleware: JWT Authentication
+const authenticateJWT = async (req, res, next) => {
   const token = req.headers.authorization;
-  if (token) {
-    const tokenWithoutBearer = token.split(" ")[1];
-    jwt.verify(tokenWithoutBearer, JWT_SECRET, (err, user) => {
-      if (err) return res.sendStatus(403);
-      req.user = user;
-      next();
-    });
-  } else {
-    res.sendStatus(401);
+  if (!token) return res.sendStatus(401);
+
+  try {
+    const tokenWithoutBearer = token.split(" ")[1]; // Remove "Bearer" prefix
+    const decoded = jwt.verify(tokenWithoutBearer, JWT_SECRET);
+
+    // Fetch full user details from DB
+    const user = await User.findById(decoded.id);
+    if (!user) return res.sendStatus(403);
+
+    req.user = user; // Attach full user object to request
+    next();
+  } catch (error) {
+    return res.sendStatus(403);
   }
 };
 
-// Middleware to check if the logged-in user is the owner
+// 🛡️ Middleware: Check if User is Owner
 const isOwner = (req, res, next) => {
-  if (req.user.username !== "owner") {
+  if (req.user.role !== "owner") {
     return res
       .status(403)
-      .send({ error: "Only the owner can perform this action." });
+      .json({ error: "Only the owner can perform this action." });
   }
   next();
 };
 
-// Routes
+const isOwnerOrAdmin = (req, res, next) => {
+  if (req.user.role !== "owner" && req.user.role !== "admin") {
+    return res
+      .status(403)
+      .json({ error: "Only owners and admins can perform this action." });
+  }
+  next();
+};
+
+// User
+User.findOne({ username: "owner" }).then(async (owner) => {
+  if (!owner) {
+    const hashedPassword = await bcrypt.hash("owner@123", 10);
+    const newOwner = new User({
+      username: "owner",
+      password: hashedPassword,
+      role: "owner",
+    });
+    await newOwner.save();
+    console.log("Owner account created.");
+  }
+});
+
+app.post("/create-user", authenticateJWT, isOwner, async (req, res) => {
+  const { newUsername, password, role } = req.body;
+  if (!["admin", "user"].includes(role)) {
+    return res
+      .status(400)
+      .json({ message: "Invalid role! Allowed roles: admin, user" });
+  }
+  if (await User.findOne({ username: newUsername })) {
+    return res.status(400).json({ message: "User already exists." });
+  }
+  const hashedPassword = await bcrypt.hash(password, 10);
+  await new User({
+    username: newUsername,
+    password: hashedPassword,
+    role,
+  }).save();
+  res
+    .status(201)
+    .json({ message: `User '${newUsername}' created successfully.` });
+});
+
+// Get all users
+app.get("/users", authenticateJWT, isOwner, async (req, res) => {
+  try {
+    const users = await User.find({}, "-password"); // Exclude password field
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching users" });
+  }
+});
+
+// Delete a user by ID
+app.delete("/users/:id", authenticateJWT, isOwner, async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json({ message: "User deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Error deleting user" });
+  }
+});
 
 // Login route (for owner login)
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
-
   const user = await User.findOne({ username });
-  if (user) {
-    const match = await bcrypt.compare(password, user.password);
-    if (match) {
-      const token = jwt.sign({ username: user.username }, JWT_SECRET, {
-        expiresIn: "1h",
-      });
-      res.json({ token });
-    } else {
-      res.status(401).send({ error: "Invalid credentials" });
-    }
-  } else {
-    res.status(401).send({ error: "Invalid credentials" });
+
+  if (!user) {
+    return res.status(400).json({ message: "User not found" });
   }
+
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) {
+    return res.status(400).json({ message: "Invalid credentials" });
+  }
+
+  console.log("Role from DB:", user.role); // Debugging
+
+  // ✅ Generate JWT token
+  const token = generateToken(user._id);
+
+  res.json({ token, role: user.role });
 });
 
 // Get Events route (Public access)
@@ -169,7 +223,7 @@ app.get("/events", async (req, res) => {
 });
 
 // Create Event route (Only for owner)
-app.post("/create-event", authenticateJWT, isOwner, async (req, res) => {
+app.post("/create-event", authenticateJWT, isOwnerOrAdmin, async (req, res) => {
   const { title, description, date, time, venue } = req.body;
   const createdBy = req.user.username;
 
@@ -191,32 +245,42 @@ app.post("/create-event", authenticateJWT, isOwner, async (req, res) => {
   }
 });
 
-app.put("/update-event/:id", authenticateJWT, isOwner, async (req, res) => {
-  try {
-    const event = await Event.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-    });
-    if (!event) {
-      return res.status(404).send({ error: "Event not found" });
+app.put(
+  "/update-event/:id",
+  authenticateJWT,
+  isOwnerOrAdmin,
+  async (req, res) => {
+    try {
+      const event = await Event.findByIdAndUpdate(req.params.id, req.body, {
+        new: true,
+      });
+      if (!event) {
+        return res.status(404).send({ error: "Event not found" });
+      }
+      res.send({ message: "Event updated successfully" });
+    } catch (error) {
+      res.status(500).send({ error: error.message });
     }
-    res.send({ message: "Event updated successfully" });
-  } catch (error) {
-    res.status(500).send({ error: error.message });
   }
-});
+);
 
 // Delete Event route (Only for owner)
-app.delete("/delete-event/:id", authenticateJWT, isOwner, async (req, res) => {
-  try {
-    const event = await Event.findByIdAndDelete(req.params.id);
-    if (!event) {
-      return res.status(404).send({ error: "Event not found" });
+app.delete(
+  "/delete-event/:id",
+  authenticateJWT,
+  isOwnerOrAdmin,
+  async (req, res) => {
+    try {
+      const event = await Event.findByIdAndDelete(req.params.id);
+      if (!event) {
+        return res.status(404).send({ error: "Event not found" });
+      }
+      res.send({ message: "Event deleted successfully" });
+    } catch (error) {
+      res.status(500).send({ error: error.message });
     }
-    res.send({ message: "Event deleted successfully" });
-  } catch (error) {
-    res.status(500).send({ error: error.message });
   }
-});
+);
 
 // Create Payment Intent route (for Stripe integration)
 app.post("/create-payment-intent", async (req, res) => {
@@ -290,8 +354,8 @@ app.post("/contact-us", async (req, res) => {
   }
 });
 
-// Direcotor
-import multer from "multer";
+//Director
+
 const DirectorSchema = new mongoose.Schema({
   name: { type: String, required: true },
   position: {
@@ -299,47 +363,28 @@ const DirectorSchema = new mongoose.Schema({
     required: true,
     enum: ["Esteemed Donors", "Board Of Trustees", "Board of Directors"],
   },
-  image: { type: String, required: true },
 });
 
 const Director = mongoose.model("Director", DirectorSchema);
 
-// Middleware for file upload (image)
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname);
-  },
-});
-const upload = multer({ storage });
-
 // Add Director (Only for owner)
-app.post(
-  "/add-director",
-  authenticateJWT,
-  isOwner,
-  upload.single("image"),
-  async (req, res) => {
-    const { name, position } = req.body;
-    const image = req.file ? req.file.path : null;
+app.post("/add-director", authenticateJWT, isOwnerOrAdmin, async (req, res) => {
+  const { name, position } = req.body;
 
-    if (!name || !position || !image) {
-      return res.status(400).json({ error: "All fields are required" });
-    }
-
-    try {
-      const newDirector = new Director({ name, position, image });
-      await newDirector.save();
-      res.status(201).json({ message: "Director added successfully" });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
+  if (!name || !position) {
+    return res.status(400).json({ error: "All fields are required" });
   }
-);
 
-// Get Directors (Public access)
+  try {
+    const newDirector = new Director({ name, position });
+    await newDirector.save();
+    res.status(201).json({ message: "Director added successfully" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// // Get Directors (Public access)
 app.get("/directors", async (req, res) => {
   try {
     const directors = await Director.find({});
@@ -349,11 +394,11 @@ app.get("/directors", async (req, res) => {
   }
 });
 
-// Delete Director (Only for owner)
+// // Delete Director (Only for owner)
 app.delete(
   "/delete-director/:id",
   authenticateJWT,
-  isOwner,
+  isOwnerOrAdmin,
   async (req, res) => {
     try {
       const director = await Director.findByIdAndDelete(req.params.id);

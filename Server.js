@@ -6,6 +6,7 @@ import bodyParser from "body-parser";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import dotenv from "dotenv";
+import nodemailer from "nodemailer";
 
 dotenv.config(); // Load environment variables from .env
 
@@ -82,13 +83,24 @@ const pledgeSchema = new mongoose.Schema({
   pledgeDate: String,
   signature: String,
 });
+const bookingSchema = new mongoose.Schema(
+  {
+    serviceName: String,
+
+    clientName: String,
+    phone: String,
+    email: String,
+    time: String,
+  },
+  { timestamps: true }
+);
 
 const Event = mongoose.model("Event", EventSchema);
 const User = mongoose.model("User", UserSchema);
 const Volunteer = mongoose.model("Volunteer", VolunteerSchema);
 const ContactUs = mongoose.model("ContactUs", ContactUsSchema);
 const Pledge = mongoose.model("Pledge", pledgeSchema);
-
+const Booking = mongoose.model("Booking", bookingSchema);
 // JWT Middleware (for protected routes)
 
 const generateToken = (userId) => {
@@ -495,6 +507,98 @@ app.delete("/unsubscribe/:email", async (req, res) => {
   } catch (error) {
     console.error("Error unsubscribing email:", error);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+//Booking Services
+app.post("/book-service", async (req, res) => {
+  try {
+    const {
+      serviceName,
+
+      clientName,
+      phone,
+      email,
+      time,
+    } = req.body;
+
+    const newBooking = new Booking({
+      serviceName,
+      clientName,
+      phone,
+      email,
+      time,
+    });
+
+    await newBooking.save();
+    res.status(201).json({ message: "Booking saved successfully!" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to save booking" });
+  }
+});
+app.get("/bookings", async (req, res) => {
+  try {
+    const bookings = await Booking.find();
+    res.status(200).json(bookings); // Send back the data in JSON format
+  } catch (error) {
+    console.error("Error fetching bookings:", error);
+    res.status(500).json({ error: "Failed to fetch bookings" });
+  }
+});
+// Endpoint to edit a booking
+app.put("/bookings/:id", async (req, res) => {
+  try {
+    const updatedBooking = await Booking.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      {
+        new: true,
+      }
+    );
+    res.json(updatedBooking);
+  } catch (error) {
+    res.status(500).json({ message: "Error updating booking" });
+  }
+});
+
+// Endpoint to delete a booking
+app.delete("/bookings/:id", async (req, res) => {
+  try {
+    await Booking.findByIdAndDelete(req.params.id);
+    res.json({ message: "Booking deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Error deleting booking" });
+  }
+});
+
+// Endpoint to send email
+app.post("/send-email", async (req, res) => {
+  const { email, subject, message } = req.body;
+
+  // Create a transporter object using SMTP
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: "adityavazarkar34@gmail.com", // Replace with your Gmail address
+      pass: "kfxw tokw vxwm fjvm", // Use the generated app password here
+    },
+  });
+
+  const mailOptions = {
+    from: "adityavazarkar34@gmail.com", // Replace with your email
+    to: email,
+    subject: subject,
+    text: message,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    res.json({ message: "Email sent successfully!" });
+  } catch (error) {
+    console.error("Error sending email:", error); // Log the error details
+    res
+      .status(500)
+      .json({ message: "Error sending email", error: error.message });
   }
 });
 

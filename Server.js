@@ -1,12 +1,12 @@
-import express from "express";
-import Stripe from "stripe";
-import cors from "cors";
-import mongoose from "mongoose";
-import bodyParser from "body-parser";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
-import dotenv from "dotenv";
-import nodemailer from "nodemailer";
+const express = require("express");
+const Stripe = require("stripe");
+const cors = require("cors");
+const mongoose = require("mongoose");
+const bodyParser = require("body-parser");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
+const dotenv = require("dotenv");
+const nodemailer = require("nodemailer");
 
 dotenv.config(); // Load environment variables from .env
 
@@ -14,10 +14,18 @@ const app = express();
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const MONGO_URI = process.env.MONGO_URI;
-const PORT = process.env.PORT || 5000; // Default to 5000 if PORT is not set
+const PORT = process.env.PORT || 5000;
+
+// const JWT_SECRET =
+//   "e9e3a320bcf6c4700866461e82e1146481259a1e28b57e5999ed248cb700041872d89d149a8bafebd4110778057ac6987aa8be88051062a7bf1f5c89a2615b5b";
+// const MONGO_URI =
+//   "mongodb+srv://asif:asif1234@owner.rnryq.mongodb.net/Owner?retryWrites=true&w=majority&appName=Owner";
+// const PORT = 5000; // Default to 5000 if PORT is not set
 
 // Replace with your Stripe secret key
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = new Stripe(
+  "sk_test_51QNqbPBgGegBsBEaLGeAB50S95sjp7F8XfvTV6WVEaBzsIqd2tfAFUoFQL50ah4NjGOyNmy7JA1Gyyja9OMGd6cf00OJacfIPF"
+);
 
 app.use(cors());
 app.use(express.json());
@@ -25,13 +33,31 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use("/uploads", express.static("uploads"));
 
 // MongoDB connection
-mongoose.connect(MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+// mongoose.connect(MONGO_URI, {
+//   useNewUrlParser: true,
+//   useUnifiedTopology: true,
+// });
+// Remove this duplicate connection:
+// mongoose.connect(MONGO_URI, {
+//   useNewUrlParser: true,
+//   useUnifiedTopology: true,
+// });
 
-const db = mongoose.connection;
-db.on("error", console.error.bind(console, "connection error:"));
+// Keep only this one:
+mongoose
+  .connect(MONGO_URI)
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.error("MongoDB connection error:", err));
+
+mongoose
+  .connect(MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 10s
+    socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+  })
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.error("MongoDB connection error:", err));
 
 // MongoDB Schemas and Models
 const EventSchema = new mongoose.Schema({
@@ -147,18 +173,37 @@ const isOwnerOrAdmin = (req, res, next) => {
 };
 
 // User
-User.findOne({ username: "owner" }).then(async (owner) => {
-  if (!owner) {
-    const hashedPassword = await bcrypt.hash("owner@123", 10);
-    const newOwner = new User({
-      username: "owner",
-      password: hashedPassword,
-      role: "owner",
-    });
-    await newOwner.save();
-    console.log("Owner account created.");
-  }
-});
+// User.findOne({ username: "owner" }).then(async (owner) => {
+//   if (!owner) {
+//     const hashedPassword = await bcrypt.hash("owner@123", 10);
+//     const newOwner = new User({
+//       username: "owner",
+//       password: hashedPassword,
+//       role: "owner",
+//     });
+//     await newOwner.save();
+//     console.log("Owner account created.");
+//   }
+// });
+mongoose
+  .connect(MONGO_URI)
+  .then(async () => {
+    console.log("MongoDB connected");
+
+    // ✅ Only run after DB connection is successful
+    const owner = await User.findOne({ username: "owner" });
+    if (!owner) {
+      const hashedPassword = await bcrypt.hash("owner@123", 10);
+      const newOwner = new User({
+        username: "owner",
+        password: hashedPassword,
+        role: "owner",
+      });
+      await newOwner.save();
+      console.log("Owner account created.");
+    }
+  })
+  .catch((err) => console.error("MongoDB connection error:", err));
 
 app.post("/create-user", authenticateJWT, isOwner, async (req, res) => {
   const { newUsername, password, role } = req.body;
@@ -572,20 +617,60 @@ app.delete("/bookings/:id", async (req, res) => {
 });
 
 // Endpoint to send email
+// app.post("/send-email", async (req, res) => {
+//   const { email, subject, message } = req.body;
+
+//   // Create a transporter object using SMTP
+//   // const transporter = nodemailer.createTransport({
+//   //   service: "gmail",
+//   //   auth: {
+//   //     user: "adityavazarkar34@gmail.com", // Replace with your Gmail address
+//   //     pass: "kfxw tokw vxwm fjvm", // Use the generated app password here
+//   //   },
+//   // });
+//   const transporter = nodemailer.createTransport({
+//     host: "adityavazarkar34@gmail.com",
+//     port: 587,
+//     secure: false,
+//     auth: {
+//       user: "adityavazarkar34@gmail.com",
+//       pass: "odiw oywl eiyu pspz",
+//     },
+//   });
+
+//   const mailOptions = {
+//     from: "adityavazarkar34@gmail.com", // Replace with your email
+//     to: email,
+//     subject: subject,
+//     text: message,
+//   };
+
+//   try {
+//     await transporter.sendMail(mailOptions);
+//     res.json({ message: "Email sent successfully!" });
+//   } catch (error) {
+//     console.error("Error sending email:", error); // Log the error details
+//     res
+//       .status(500)
+//       .json({ message: "Error sending email", error: error.message });
+//   }
+// });
+
 app.post("/send-email", async (req, res) => {
   const { email, subject, message } = req.body;
 
-  // Create a transporter object using SMTP
   const transporter = nodemailer.createTransport({
-    service: "gmail",
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
     auth: {
-      user: "adityavazarkar34@gmail.com", // Replace with your Gmail address
-      pass: "kfxw tokw vxwm fjvm", // Use the generated app password here
+      user: "adityavazarkar34@gmail.com",
+      pass: "odiw oywl eiyu pspz", // App password
     },
   });
 
   const mailOptions = {
-    from: "adityavazarkar34@gmail.com", // Replace with your email
+    from: "adityavazarkar34@gmail.com",
     to: email,
     subject: subject,
     text: message,
@@ -595,11 +680,15 @@ app.post("/send-email", async (req, res) => {
     await transporter.sendMail(mailOptions);
     res.json({ message: "Email sent successfully!" });
   } catch (error) {
-    console.error("Error sending email:", error); // Log the error details
+    console.error("Error sending email:", error);
     res
       .status(500)
       .json({ message: "Error sending email", error: error.message });
   }
+});
+
+app.get("/", (req, res) => {
+  res.send("Hello from Express!");
 });
 
 app.listen(PORT, () => {

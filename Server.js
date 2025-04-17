@@ -23,9 +23,9 @@ const PORT = process.env.PORT || 5000;
 // const PORT = 5000; // Default to 5000 if PORT is not set
 
 // Replace with your Stripe secret key
-const stripe = new Stripe(
-  "sk_test_51QNqbPBgGegBsBEaLGeAB50S95sjp7F8XfvTV6WVEaBzsIqd2tfAFUoFQL50ah4NjGOyNmy7JA1Gyyja9OMGd6cf00OJacfIPF"
-);
+// const stripe = new Stripe(
+//   "sk_test_51QNqbPBgGegBsBEaLGeAB50S95sjp7F8XfvTV6WVEaBzsIqd2tfAFUoFQL50ah4NjGOyNmy7JA1Gyyja9OMGd6cf00OJacfIPF"
+// );
 
 app.use(cors());
 app.use(express.json());

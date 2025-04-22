@@ -7,6 +7,8 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const dotenv = require("dotenv");
 const nodemailer = require("nodemailer");
+const multer = require("multer");
+const XLSX = require("xlsx");
 
 dotenv.config(); // Load environment variables from .env
 
@@ -120,6 +122,11 @@ const bookingSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+const scheduleSchema = new mongoose.Schema({
+  day: String,
+  time: String,
+  event: String,
+});
 
 const Event = mongoose.model("Event", EventSchema);
 const User = mongoose.model("User", UserSchema);
@@ -127,6 +134,7 @@ const Volunteer = mongoose.model("Volunteer", VolunteerSchema);
 const ContactUs = mongoose.model("ContactUs", ContactUsSchema);
 const Pledge = mongoose.model("Pledge", pledgeSchema);
 const Booking = mongoose.model("Booking", bookingSchema);
+const Schedule = mongoose.model("Schedule", scheduleSchema);
 // JWT Middleware (for protected routes)
 
 const generateToken = (userId) => {
@@ -616,46 +624,6 @@ app.delete("/bookings/:id", async (req, res) => {
   }
 });
 
-// Endpoint to send email
-// app.post("/send-email", async (req, res) => {
-//   const { email, subject, message } = req.body;
-
-//   // Create a transporter object using SMTP
-//   // const transporter = nodemailer.createTransport({
-//   //   service: "gmail",
-//   //   auth: {
-//   //     user: "adityavazarkar34@gmail.com", // Replace with your Gmail address
-//   //     pass: "kfxw tokw vxwm fjvm", // Use the generated app password here
-//   //   },
-//   // });
-//   const transporter = nodemailer.createTransport({
-//     host: "adityavazarkar34@gmail.com",
-//     port: 587,
-//     secure: false,
-//     auth: {
-//       user: "adityavazarkar34@gmail.com",
-//       pass: "odiw oywl eiyu pspz",
-//     },
-//   });
-
-//   const mailOptions = {
-//     from: "adityavazarkar34@gmail.com", // Replace with your email
-//     to: email,
-//     subject: subject,
-//     text: message,
-//   };
-
-//   try {
-//     await transporter.sendMail(mailOptions);
-//     res.json({ message: "Email sent successfully!" });
-//   } catch (error) {
-//     console.error("Error sending email:", error); // Log the error details
-//     res
-//       .status(500)
-//       .json({ message: "Error sending email", error: error.message });
-//   }
-// });
-
 app.post("/send-email", async (req, res) => {
   const { email, subject, message } = req.body;
 
@@ -684,6 +652,118 @@ app.post("/send-email", async (req, res) => {
     res
       .status(500)
       .json({ message: "Error sending email", error: error.message });
+  }
+});
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+app.post("/upload", upload.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).send("No file uploaded");
+
+  try {
+    const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }); // Read as raw array
+
+    console.log("Parsed Excel Data:", data); // Debug log
+
+    // Skip irrelevant rows (like Timetable and Name: rows)
+    const validData = data.filter(
+      (row) =>
+        row.length > 1 &&
+        row[0] &&
+        row[0] !== "Timetable" &&
+        row[0] !== "Name:" &&
+        row[0] !== "© Calendarpedia®   www.calendarpedia.co.uk"
+    );
+
+    console.log("Valid Data:", validData);
+
+    if (validData.length === 0) {
+      return res.status(400).send("No valid data found in the file");
+    }
+
+    // The first row contains headers (Time, Monday, Tuesday, etc.)
+    const days = validData[0].slice(1); // Grab days from the first row (exclude Time)
+    const formattedData = [];
+
+    // Loop through remaining rows and format data
+    validData.slice(1).forEach((row) => {
+      const time = row[0]; // First column is time
+      days.forEach((day, index) => {
+        const event = row[index + 1]; // Event for the respective day
+        if (event) {
+          formattedData.push({ day: day, time: time, event: event });
+        }
+      });
+    });
+
+    console.log("Formatted Data to Save:", formattedData);
+
+    // If no valid events found after formatting, return an error
+    if (formattedData.length === 0) {
+      return res.status(400).send("No valid events to save");
+    }
+
+    // Delete existing data before inserting new
+    await Schedule.deleteMany();
+
+    const inserted = await Schedule.insertMany(formattedData);
+    console.log(`Inserted ${inserted.length} records`);
+
+    res.send("Data uploaded and saved to MongoDB");
+  } catch (err) {
+    console.error("Error processing Excel:", err.message);
+    res.status(500).send("Error processing file");
+  }
+});
+
+app.get("/schedule/:day", async (req, res) => {
+  const { day } = req.params;
+  const events = await Schedule.find({ day }).sort({ time: 1 });
+  res.json(events);
+});
+
+// Delete event route
+app.delete("/event", async (req, res) => {
+  const { day, time } = req.body;
+
+  try {
+    // Delete the event based on day and time
+    const deleted = await Schedule.deleteOne({ day, time });
+
+    if (deleted.deletedCount === 0) {
+      return res.status(404).send("Event not found");
+    }
+
+    res.status(200).send("Event deleted successfully");
+  } catch (error) {
+    console.error("Error deleting event:", error);
+    res.status(500).send("Error deleting event");
+  }
+});
+
+// Route to update an event by day and time
+// Edit event route
+// Edit event route
+app.put("/event", async (req, res) => {
+  const { day, oldTime, newTime, newEvent } = req.body;
+
+  try {
+    // Update the event matching the day and oldTime
+    const updated = await Schedule.updateOne(
+      { day, time: oldTime },
+      { $set: { time: newTime, event: newEvent } }
+    );
+
+    if (updated.nModified === 0) {
+      return res.status(404).send("Event not found");
+    }
+
+    res.status(200).send("Event updated successfully");
+  } catch (error) {
+    console.error("Error updating event:", error);
+    res.status(500).send("Error updating event");
   }
 });
 

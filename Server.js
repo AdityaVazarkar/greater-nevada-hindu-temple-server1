@@ -127,6 +127,14 @@ const scheduleSchema = new mongoose.Schema({
   time: String,
   event: String,
 });
+const DevoteeSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    description: { type: String, required: true },
+    image: { type: String }, // file path
+  },
+  { timestamps: true }
+);
 
 const Event = mongoose.model("Event", EventSchema);
 const User = mongoose.model("User", UserSchema);
@@ -135,7 +143,20 @@ const ContactUs = mongoose.model("ContactUs", ContactUsSchema);
 const Pledge = mongoose.model("Pledge", pledgeSchema);
 const Booking = mongoose.model("Booking", bookingSchema);
 const Schedule = mongoose.model("Schedule", scheduleSchema);
+const Devotee = mongoose.model("Devotee", DevoteeSchema);
 // JWT Middleware (for protected routes)
+
+// Multer for image upload
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/");
+  },
+  filename: function (req, file, cb) {
+    const uniqueName = `${Date.now()}-${file.originalname}`;
+    cb(null, uniqueName);
+  },
+});
+const upload = multer({ storage });
 
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "1h" });
@@ -655,7 +676,7 @@ app.post("/send-email", async (req, res) => {
   }
 });
 
-const upload = multer({ storage: multer.memoryStorage() });
+// const upload = multer({ storage: multer.memoryStorage() });
 
 app.post("/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).send("No file uploaded");
@@ -764,6 +785,81 @@ app.put("/event", async (req, res) => {
   } catch (error) {
     console.error("Error updating event:", error);
     res.status(500).send("Error updating event");
+  }
+});
+
+// ... (your existing imports and setup)
+
+// Add this right before your other routes (around line 200, before the login route)
+const authRouter = express.Router();
+authRouter.get("/validate", (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader)
+    return res.status(401).json({ message: "No token provided" });
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    res.status(200).json({ valid: true, user: decoded });
+  } catch (err) {
+    res.status(401).json({ message: "Invalid or expired token" });
+  }
+});
+
+// Mount the auth router
+app.use("/api/auth", authRouter);
+
+// ... (continue with your existing routes like login, events, etc.)
+
+// Keep only your existing app.listen() at the bottom
+
+// Route to add devotee
+app.post("/api/devotees", upload.single("image"), async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    const imagePath = req.file ? req.file.path : null;
+
+    const newDevotee = new Devotee({
+      name,
+      description,
+      image: imagePath,
+    });
+
+    await newDevotee.save();
+    res
+      .status(201)
+      .json({ message: "Devotee added successfully", devotee: newDevotee });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
+});
+
+// Route to get all devotees
+app.get("/api/devotees", async (req, res) => {
+  try {
+    const devotees = await Devotee.find();
+    res.status(200).json(devotees);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching devotees", error });
+  }
+});
+const fs = require("fs");
+
+// DELETE devotee by ID
+app.delete("/api/devotees/:id", async (req, res) => {
+  try {
+    const devotee = await Devotee.findById(req.params.id);
+    if (!devotee) return res.status(404).json({ message: "Devotee not found" });
+
+    // Delete image from uploads folder
+    if (devotee.image && fs.existsSync(devotee.image)) {
+      fs.unlinkSync(devotee.image);
+    }
+
+    await Devotee.findByIdAndDelete(req.params.id);
+    res.status(200).json({ message: "Devotee deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Error deleting devotee", error });
   }
 });
 

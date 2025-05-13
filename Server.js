@@ -18,13 +18,6 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const MONGO_URI = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;
 
-// const JWT_SECRET =
-//   "e9e3a320bcf6c4700866461e82e1146481259a1e28b57e5999ed248cb700041872d89d149a8bafebd4110778057ac6987aa8be88051062a7bf1f5c89a2615b5b";
-// const MONGO_URI =
-//   "mongodb+srv://asif:asif1234@owner.rnryq.mongodb.net/Owner?retryWrites=true&w=majority&appName=Owner";
-// const PORT = 5000; // Default to 5000 if PORT is not set
-
-// Replace with your Stripe secret key
 const stripe = new Stripe(
   "sk_test_51QNqbPBgGegBsBEaLGeAB50S95sjp7F8XfvTV6WVEaBzsIqd2tfAFUoFQL50ah4NjGOyNmy7JA1Gyyja9OMGd6cf00OJacfIPF"
 );
@@ -33,17 +26,6 @@ app.use(cors());
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use("/uploads", express.static("uploads"));
-
-// MongoDB connection
-// mongoose.connect(MONGO_URI, {
-//   useNewUrlParser: true,
-//   useUnifiedTopology: true,
-// });
-// Remove this duplicate connection:
-// mongoose.connect(MONGO_URI, {
-//   useNewUrlParser: true,
-//   useUnifiedTopology: true,
-// });
 
 // Keep only this one:
 mongoose
@@ -201,19 +183,6 @@ const isOwnerOrAdmin = (req, res, next) => {
   next();
 };
 
-// User
-// User.findOne({ username: "owner" }).then(async (owner) => {
-//   if (!owner) {
-//     const hashedPassword = await bcrypt.hash("owner@123", 10);
-//     const newOwner = new User({
-//       username: "owner",
-//       password: hashedPassword,
-//       role: "owner",
-//     });
-//     await newOwner.save();
-//     console.log("Owner account created.");
-//   }
-// });
 mongoose
   .connect(MONGO_URI)
   .then(async () => {
@@ -449,20 +418,21 @@ const DirectorSchema = new mongoose.Schema({
     required: true,
     enum: ["Esteemed Donors", "Board Of Trustees", "Board of Directors"],
   },
+  phone: { type: String }, // Optional field
 });
 
 const Director = mongoose.model("Director", DirectorSchema);
 
 // Add Director (Only for owner)
 app.post("/add-director", authenticateJWT, isOwnerOrAdmin, async (req, res) => {
-  const { name, position } = req.body;
+  const { name, position, phone } = req.body; // Add phone to destructuring
 
   if (!name || !position) {
-    return res.status(400).json({ error: "All fields are required" });
+    return res.status(400).json({ error: "Name and position are required" });
   }
 
   try {
-    const newDirector = new Director({ name, position });
+    const newDirector = new Director({ name, position, phone });
     await newDirector.save();
     res.status(201).json({ message: "Director added successfully" });
   } catch (error) {
@@ -676,6 +646,37 @@ app.post("/send-email", async (req, res) => {
   }
 });
 
+// Add this to your server code
+app.post("/send-otp", async (req, res) => {
+  const { email, subject, message } = req.body;
+
+  const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    auth: {
+      user: "adityavazarkar34@gmail.com",
+      pass: "odiw oywl eiyu pspz", // App password
+    },
+  });
+
+  const mailOptions = {
+    from: "adityavazarkar34@gmail.com",
+    to: email,
+    subject: subject,
+    text: message,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    res.json({ message: "OTP sent successfully!" });
+  } catch (error) {
+    console.error("Error sending OTP:", error);
+    res
+      .status(500)
+      .json({ message: "Error sending OTP", error: error.message });
+  }
+});
 // const upload = multer({ storage: multer.memoryStorage() });
 
 app.post("/upload", upload.single("file"), async (req, res) => {

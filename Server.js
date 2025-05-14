@@ -9,8 +9,12 @@ const dotenv = require("dotenv");
 const nodemailer = require("nodemailer");
 const multer = require("multer");
 const XLSX = require("xlsx");
-
+const path = require("path");
+const fs = require("fs");
 dotenv.config(); // Load environment variables from .env
+const xlsx = require("xlsx");
+const { GridFsStorage } = require("multer-gridfs-storage");
+const Grid = require("gridfs-stream");
 
 const app = express();
 
@@ -40,7 +44,9 @@ mongoose
     serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 10s
     socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
   })
-  .then(() => console.log("MongoDB connected"))
+  .then(() => {
+    console.log("MongoDB connected");
+  })
   .catch((err) => console.error("MongoDB connection error:", err));
 
 // MongoDB Schemas and Models
@@ -109,14 +115,14 @@ const scheduleSchema = new mongoose.Schema({
   time: String,
   event: String,
 });
-const DevoteeSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    description: { type: String, required: true },
-    image: { type: String }, // file path
-  },
-  { timestamps: true }
-);
+// const DevoteeSchema = new mongoose.Schema(
+//   {
+//     name: { type: String, required: true },
+//     description: { type: String, required: true },
+//     image: { type: String }, // file path
+//   },
+//   { timestamps: true }
+// );
 
 const Event = mongoose.model("Event", EventSchema);
 const User = mongoose.model("User", UserSchema);
@@ -125,20 +131,7 @@ const ContactUs = mongoose.model("ContactUs", ContactUsSchema);
 const Pledge = mongoose.model("Pledge", pledgeSchema);
 const Booking = mongoose.model("Booking", bookingSchema);
 const Schedule = mongoose.model("Schedule", scheduleSchema);
-const Devotee = mongoose.model("Devotee", DevoteeSchema);
-// JWT Middleware (for protected routes)
-
-// Multer for image upload
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, "uploads/");
-  },
-  filename: function (req, file, cb) {
-    const uniqueName = `${Date.now()}-${file.originalname}`;
-    cb(null, uniqueName);
-  },
-});
-const upload = multer({ storage });
+// const Devotee = mongoose.model("Devotee", DevoteeSchema);
 
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "1h" });
@@ -679,90 +672,289 @@ app.post("/send-otp", async (req, res) => {
 });
 // const upload = multer({ storage: multer.memoryStorage() });
 
+// Upload route
+// app.post("/upload", upload.single("file"), async (req, res) => {
+//   if (!req.file) return res.status(400).send("No file uploaded");
+
+//   const ext = req.file.originalname.split(".").pop().toLowerCase();
+
+//   let data;
+//   try {
+//     if (ext === "xlsx" || ext === "xls") {
+//       const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+//       const sheetName = workbook.SheetNames[0];
+//       const sheet = workbook.Sheets[sheetName];
+//       data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+//     } else if (ext === "csv") {
+//       const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+//       const sheet = workbook.Sheets[workbook.SheetNames[0]];
+//       data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+//     } else if (ext === "json") {
+//       data = JSON.parse(req.file.buffer.toString());
+//       if (!Array.isArray(data)) throw new Error("Invalid JSON format");
+//     } else {
+//       return res.status(400).send("Unsupported file format");
+//     }
+//   } catch (error) {
+//     console.error("Parsing error:", error);
+//     return res.status(400).send("Failed to parse uploaded file");
+//   }
+
+//   // Normalize and format data
+//   const formattedData = [];
+
+//   try {
+//     if (Array.isArray(data[0])) {
+//       // Excel or CSV style with headers in row[0]
+//       const headers = data[0];
+//       const timeColumnIndex = 0;
+//       const dayColumns = headers.slice(1);
+
+//       for (let i = 1; i < data.length; i++) {
+//         const row = data[i];
+//         const time = row[timeColumnIndex];
+//         if (!time) continue;
+
+//         dayColumns.forEach((day, dayIndex) => {
+//           const event = row[dayIndex + 1];
+//           if (event && day) {
+//             formattedData.push({
+//               day: day.toString().trim(),
+//               time: time.toString().trim(),
+//               event: event.toString().trim(),
+//             });
+//           }
+//         });
+//       }
+//     } else if (Array.isArray(data)) {
+//       // JSON style: [{ day: 'Monday', time: '9:00 AM', event: 'Yoga' }]
+//       data.forEach((item) => {
+//         if (item.day && item.time && item.event) {
+//           formattedData.push({
+//             day: item.day.toString().trim(),
+//             time: item.time.toString().trim(),
+//             event: item.event.toString().trim(),
+//           });
+//         }
+//       });
+//     }
+//   } catch (processError) {
+//     console.error("Data processing error:", processError);
+//     return res.status(400).send("Error processing file data");
+//   }
+
+//   if (formattedData.length === 0) {
+//     return res.status(400).send("No valid events found");
+//   }
+
+//   // Save to DB
+//   try {
+//     await Schedule.deleteMany();
+//     await Schedule.insertMany(formattedData);
+//     return res.send(`Successfully uploaded ${formattedData.length} events`);
+//   } catch (dbError) {
+//     console.error("DB error:", dbError);
+//     return res.status(500).send("Error saving to database");
+//   }
+// });
+// // Get schedule for a specific day
+// app.get("/schedule/:day", async (req, res) => {
+//   const { day } = req.params;
+//   try {
+//     const events = await Schedule.find({ day }).sort({ time: 1 });
+//     res.json(events);
+//   } catch (error) {
+//     console.error("Error fetching schedule:", error);
+//     res.status(500).send("Error fetching schedule");
+//   }
+// });
+
+// // Delete an event
+// app.delete("/event", async (req, res) => {
+//   const { day, time } = req.body;
+
+//   try {
+//     const deleted = await Schedule.deleteOne({ day, time });
+
+//     if (deleted.deletedCount === 0) {
+//       return res.status(404).send("Event not found");
+//     }
+
+//     res.status(200).send("Event deleted successfully");
+//   } catch (error) {
+//     console.error("Error deleting event:", error);
+//     res.status(500).send("Error deleting event");
+//   }
+// });
+
+let scheduleDatabase = {
+  Monday: [],
+  Tuesday: [],
+  Wednesday: [],
+  Thursday: [],
+  Friday: [],
+  Saturday: [],
+  Sunday: [],
+};
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
+});
+
+const upload = multer({ storage });
+
+// Ensure uploads directory exists
+if (!fs.existsSync("uploads")) {
+  fs.mkdirSync("uploads");
+}
+
+// Helper function to convert Excel time to 12-hour format
+const formatTime = (excelTime) => {
+  if (!excelTime) return "";
+
+  // Excel times are fractions of a day (1 = 24 hours)
+  const totalSeconds = excelTime * 24 * 60 * 60;
+  const hours = Math.floor(totalSeconds / 3600) % 24;
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+  const period = hours >= 12 ? "pm" : "am";
+  const displayHours = hours % 12 || 12; // Convert 0 to 12
+
+  return `${displayHours}:${minutes.toString().padStart(2, "0")}${period}`;
+};
+
+// API Endpoints
+
+// Upload Excel file
 app.post("/upload", upload.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).send("No file uploaded");
-
   try {
-    const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }); // Read as raw array
-
-    console.log("Parsed Excel Data:", data); // Debug log
-
-    // Skip irrelevant rows (like Timetable and Name: rows)
-    const validData = data.filter(
-      (row) =>
-        row.length > 1 &&
-        row[0] &&
-        row[0] !== "Timetable" &&
-        row[0] !== "Name:" &&
-        row[0] !== "© Calendarpedia®   www.calendarpedia.co.uk"
-    );
-
-    console.log("Valid Data:", validData);
-
-    if (validData.length === 0) {
-      return res.status(400).send("No valid data found in the file");
+    if (!req.file) {
+      return res.status(400).send("No file uploaded");
     }
 
-    // The first row contains headers (Time, Monday, Tuesday, etc.)
-    const days = validData[0].slice(1); // Grab days from the first row (exclude Time)
-    const formattedData = [];
+    const filePath = path.join(__dirname, req.file.path);
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(worksheet);
 
-    // Loop through remaining rows and format data
-    validData.slice(1).forEach((row) => {
-      const time = row[0]; // First column is time
-      days.forEach((day, index) => {
-        const event = row[index + 1]; // Event for the respective day
-        if (event) {
-          formattedData.push({ day: day, time: time, event: event });
+    // Reset the database
+    scheduleDatabase = {
+      Monday: [],
+      Tuesday: [],
+      Wednesday: [],
+      Thursday: [],
+      Friday: [],
+      Saturday: [],
+      Sunday: [],
+    };
+
+    // Process each row of the Excel file
+    data.forEach((row) => {
+      const days = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+      ];
+
+      days.forEach((day) => {
+        const time = row["Time"] ? formatTime(row["Time"]) : "";
+        const event = row[day] || "";
+
+        if (event && event.trim() !== "") {
+          scheduleDatabase[day].push({
+            time: time,
+            event: event.trim(),
+          });
         }
       });
     });
 
-    console.log("Formatted Data to Save:", formattedData);
+    // Sort events by time for each day
+    Object.keys(scheduleDatabase).forEach((day) => {
+      scheduleDatabase[day].sort((a, b) => {
+        const timeA = a.time.toLowerCase();
+        const timeB = b.time.toLowerCase();
 
-    // If no valid events found after formatting, return an error
-    if (formattedData.length === 0) {
-      return res.status(400).send("No valid events to save");
-    }
+        // Simple string comparison for sorting (you might want to improve this)
+        if (timeA.includes("am") && timeB.includes("pm")) return -1;
+        if (timeA.includes("pm") && timeB.includes("am")) return 1;
 
-    // Delete existing data before inserting new
-    await Schedule.deleteMany();
+        return timeA.localeCompare(timeB);
+      });
+    });
 
-    const inserted = await Schedule.insertMany(formattedData);
-    console.log(`Inserted ${inserted.length} records`);
+    // Delete the uploaded file after processing
+    fs.unlinkSync(filePath);
 
-    res.send("Data uploaded and saved to MongoDB");
-  } catch (err) {
-    console.error("Error processing Excel:", err.message);
+    res.status(200).send("Schedule updated successfully");
+  } catch (error) {
+    console.error("Error processing file:", error);
     res.status(500).send("Error processing file");
   }
 });
 
-app.get("/schedule/:day", async (req, res) => {
-  const { day } = req.params;
-  const events = await Schedule.find({ day }).sort({ time: 1 });
-  res.json(events);
+// Get all events
+app.get("/events", (req, res) => {
+  res.json(scheduleDatabase);
 });
 
-// Delete event route
-app.delete("/event", async (req, res) => {
+// Get schedule for a specific day
+app.get("/schedule/:day", (req, res) => {
+  const day = req.params.day;
+  if (scheduleDatabase[day]) {
+    res.json(scheduleDatabase[day]);
+  } else {
+    res.status(404).send("Day not found");
+  }
+});
+
+// Add a new event
+app.post("/event", (req, res) => {
+  const { day, time, event } = req.body;
+
+  if (!day || !time || !event) {
+    return res.status(400).send("Missing required fields");
+  }
+
+  if (!scheduleDatabase[day]) {
+    return res.status(400).send("Invalid day");
+  }
+
+  scheduleDatabase[day].push({ time, event });
+  res.status(201).send("Event added successfully");
+});
+
+// Delete an event
+app.delete("/event", (req, res) => {
   const { day, time } = req.body;
 
-  try {
-    // Delete the event based on day and time
-    const deleted = await Schedule.deleteOne({ day, time });
-
-    if (deleted.deletedCount === 0) {
-      return res.status(404).send("Event not found");
-    }
-
-    res.status(200).send("Event deleted successfully");
-  } catch (error) {
-    console.error("Error deleting event:", error);
-    res.status(500).send("Error deleting event");
+  if (!day || !time) {
+    return res.status(400).send("Missing required fields");
   }
+
+  if (!scheduleDatabase[day]) {
+    return res.status(400).send("Invalid day");
+  }
+
+  const initialLength = scheduleDatabase[day].length;
+  scheduleDatabase[day] = scheduleDatabase[day].filter((e) => e.time !== time);
+
+  if (scheduleDatabase[day].length === initialLength) {
+    return res.status(404).send("Event not found");
+  }
+
+  res.send("Event deleted successfully");
 });
 
 // Route to update an event by day and time
@@ -815,52 +1007,149 @@ app.use("/api/auth", authRouter);
 // Keep only your existing app.listen() at the bottom
 
 // Route to add devotee
-app.post("/api/devotees", upload.single("image"), async (req, res) => {
+// app.post("/api/devotees", upload.single("image"), async (req, res) => {
+//   try {
+//     const { name, description } = req.body;
+//     const imagePath = req.file ? req.file.path : null;
+
+//     const newDevotee = new Devotee({
+//       name,
+//       description,
+//       image: imagePath,
+//     });
+
+//     await newDevotee.save();
+//     res
+//       .status(201)
+//       .json({ message: "Devotee added successfully", devotee: newDevotee });
+//   } catch (error) {
+//     res.status(500).json({ message: "Server error", error });
+//   }
+// });
+
+// // Route to get all devotees
+// app.get("/api/devotees", async (req, res) => {
+//   try {
+//     const devotees = await Devotee.find();
+//     res.status(200).json(devotees);
+//   } catch (error) {
+//     res.status(500).json({ message: "Error fetching devotees", error });
+//   }
+// });
+// // const fs = require("fs");
+
+// // DELETE devotee by ID
+// app.delete("/api/devotees/:id", async (req, res) => {
+//   try {
+//     const devotee = await Devotee.findById(req.params.id);
+//     if (!devotee) return res.status(404).json({ message: "Devotee not found" });
+
+//     // Delete image from uploads folder
+//     if (devotee.image && fs.existsSync(devotee.image)) {
+//       fs.unlinkSync(devotee.image);
+//     }
+
+//     await Devotee.findByIdAndDelete(req.params.id);
+//     res.status(200).json({ message: "Devotee deleted" });
+//   } catch (error) {
+//     res.status(500).json({ message: "Error deleting devotee", error });
+//   }
+// });
+
+const conn = mongoose.connection;
+
+let gfs, gridfsBucket;
+conn.once("open", () => {
+  gridfsBucket = new mongoose.mongo.GridFSBucket(conn.db, {
+    bucketName: "uploads",
+  });
+  gfs = Grid(conn.db, mongoose.mongo);
+  gfs.collection("uploads");
+});
+
+// Priest Schema
+const priestSchema = new mongoose.Schema({
+  name: String,
+  description: String,
+  image: String, // image file name stored in GridFS
+});
+const Priest = mongoose.model("Priest", priestSchema);
+
+// Multer GridFS storage setup
+const storage1 = new GridFsStorage({
+  url: MONGO_URI,
+  file: (req, file) => {
+    const filename = `priest_${Date.now()}${path.extname(file.originalname)}`;
+    return {
+      filename,
+      bucketName: "uploads",
+    };
+  },
+});
+const upload1 = multer({ storage1 });
+
+// ========== ROUTES ==========
+
+// Upload a priest with image
+app.post("/api/devotees", upload1.single("image"), async (req, res) => {
   try {
     const { name, description } = req.body;
-    const imagePath = req.file ? req.file.path : null;
+    const image = req.file.filename;
 
-    const newDevotee = new Devotee({
-      name,
-      description,
-      image: imagePath,
-    });
+    const newPriest = new Priest({ name, description, image });
+    await newPriest.save();
 
-    await newDevotee.save();
-    res
-      .status(201)
-      .json({ message: "Devotee added successfully", devotee: newDevotee });
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error });
+    res.status(201).json({ message: "Priest added", priest: newPriest });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error saving priest" });
   }
 });
 
-// Route to get all devotees
+// Get all priests
 app.get("/api/devotees", async (req, res) => {
   try {
-    const devotees = await Devotee.find();
-    res.status(200).json(devotees);
-  } catch (error) {
-    res.status(500).json({ message: "Error fetching devotees", error });
+    const priests = await Priest.find();
+    const updated = priests.map((p) => ({
+      ...p._doc,
+      image: p.image ? `/api/image/${p.image}` : null,
+    }));
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching priests" });
   }
 });
-const fs = require("fs");
 
-// DELETE devotee by ID
+// Serve image from GridFS
+app.get("/api/image/:filename", async (req, res) => {
+  try {
+    const file = await gfs.files.findOne({ filename: req.params.filename });
+    if (!file) return res.status(404).json({ message: "Image not found" });
+
+    const readStream = gridfsBucket.openDownloadStream(file._id);
+    readStream.pipe(res);
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching image" });
+  }
+});
+
+// Delete a priest
 app.delete("/api/devotees/:id", async (req, res) => {
   try {
-    const devotee = await Devotee.findById(req.params.id);
-    if (!devotee) return res.status(404).json({ message: "Devotee not found" });
+    const priest = await Priest.findById(req.params.id);
+    if (!priest) return res.status(404).json({ message: "Priest not found" });
 
-    // Delete image from uploads folder
-    if (devotee.image && fs.existsSync(devotee.image)) {
-      fs.unlinkSync(devotee.image);
+    if (priest.image) {
+      const file = await gfs.files.findOne({ filename: priest.image });
+      if (file) {
+        await gridfsBucket.delete(file._id);
+      }
     }
 
-    await Devotee.findByIdAndDelete(req.params.id);
-    res.status(200).json({ message: "Devotee deleted" });
-  } catch (error) {
-    res.status(500).json({ message: "Error deleting devotee", error });
+    await Priest.findByIdAndDelete(req.params.id);
+    res.json({ message: "Priest deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Error deleting priest" });
   }
 });
 

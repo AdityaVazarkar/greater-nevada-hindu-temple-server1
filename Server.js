@@ -115,14 +115,14 @@ const scheduleSchema = new mongoose.Schema({
   time: String,
   event: String,
 });
-// const DevoteeSchema = new mongoose.Schema(
-//   {
-//     name: { type: String, required: true },
-//     description: { type: String, required: true },
-//     image: { type: String }, // file path
-//   },
-//   { timestamps: true }
-// );
+const DevoteeSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    description: { type: String, required: true },
+    image: { type: String }, // file path
+  },
+  { timestamps: true }
+);
 
 const Event = mongoose.model("Event", EventSchema);
 const User = mongoose.model("User", UserSchema);
@@ -131,7 +131,7 @@ const ContactUs = mongoose.model("ContactUs", ContactUsSchema);
 const Pledge = mongoose.model("Pledge", pledgeSchema);
 const Booking = mongoose.model("Booking", bookingSchema);
 const Schedule = mongoose.model("Schedule", scheduleSchema);
-// const Devotee = mongoose.model("Devotee", DevoteeSchema);
+const Devotee = mongoose.model("Devotee", DevoteeSchema);
 
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "1h" });
@@ -1002,154 +1002,53 @@ authRouter.get("/validate", (req, res) => {
 // Mount the auth router
 app.use("/api/auth", authRouter);
 
-// ... (continue with your existing routes like login, events, etc.)
-
-// Keep only your existing app.listen() at the bottom
-
 // Route to add devotee
-// app.post("/api/devotees", upload.single("image"), async (req, res) => {
-//   try {
-//     const { name, description } = req.body;
-//     const imagePath = req.file ? req.file.path : null;
-
-//     const newDevotee = new Devotee({
-//       name,
-//       description,
-//       image: imagePath,
-//     });
-
-//     await newDevotee.save();
-//     res
-//       .status(201)
-//       .json({ message: "Devotee added successfully", devotee: newDevotee });
-//   } catch (error) {
-//     res.status(500).json({ message: "Server error", error });
-//   }
-// });
-
-// // Route to get all devotees
-// app.get("/api/devotees", async (req, res) => {
-//   try {
-//     const devotees = await Devotee.find();
-//     res.status(200).json(devotees);
-//   } catch (error) {
-//     res.status(500).json({ message: "Error fetching devotees", error });
-//   }
-// });
-// // const fs = require("fs");
-
-// // DELETE devotee by ID
-// app.delete("/api/devotees/:id", async (req, res) => {
-//   try {
-//     const devotee = await Devotee.findById(req.params.id);
-//     if (!devotee) return res.status(404).json({ message: "Devotee not found" });
-
-//     // Delete image from uploads folder
-//     if (devotee.image && fs.existsSync(devotee.image)) {
-//       fs.unlinkSync(devotee.image);
-//     }
-
-//     await Devotee.findByIdAndDelete(req.params.id);
-//     res.status(200).json({ message: "Devotee deleted" });
-//   } catch (error) {
-//     res.status(500).json({ message: "Error deleting devotee", error });
-//   }
-// });
-
-const conn = mongoose.connection;
-
-let gfs, gridfsBucket;
-conn.once("open", () => {
-  gridfsBucket = new mongoose.mongo.GridFSBucket(conn.db, {
-    bucketName: "uploads",
-  });
-  gfs = Grid(conn.db, mongoose.mongo);
-  gfs.collection("uploads");
-});
-
-// Priest Schema
-const priestSchema = new mongoose.Schema({
-  name: String,
-  description: String,
-  image: String, // image file name stored in GridFS
-});
-const Priest = mongoose.model("Priest", priestSchema);
-
-// Multer GridFS storage setup
-const storage1 = new GridFsStorage({
-  url: MONGO_URI,
-  file: (req, file) => {
-    const filename = `priest_${Date.now()}${path.extname(file.originalname)}`;
-    return {
-      filename,
-      bucketName: "uploads",
-    };
-  },
-});
-const upload1 = multer({ storage1 });
-
-// ========== ROUTES ==========
-
-// Upload a priest with image
-app.post("/api/devotees", upload1.single("image"), async (req, res) => {
+app.post("/api/devotees", upload.single("image"), async (req, res) => {
   try {
     const { name, description } = req.body;
-    const image = req.file.filename;
+    const imagePath = req.file ? req.file.path : null;
 
-    const newPriest = new Priest({ name, description, image });
-    await newPriest.save();
+    const newDevotee = new Devotee({
+      name,
+      description,
+      image: imagePath,
+    });
 
-    res.status(201).json({ message: "Priest added", priest: newPriest });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error saving priest" });
+    await newDevotee.save();
+    res
+      .status(201)
+      .json({ message: "Devotee added successfully", devotee: newDevotee });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
   }
 });
 
-// Get all priests
+// Route to get all devotees
 app.get("/api/devotees", async (req, res) => {
   try {
-    const priests = await Priest.find();
-    const updated = priests.map((p) => ({
-      ...p._doc,
-      image: p.image ? `/api/image/${p.image}` : null,
-    }));
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ message: "Error fetching priests" });
+    const devotees = await Devotee.find();
+    res.status(200).json(devotees);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching devotees", error });
   }
 });
+// const fs = require("fs");
 
-// Serve image from GridFS
-app.get("/api/image/:filename", async (req, res) => {
-  try {
-    const file = await gfs.files.findOne({ filename: req.params.filename });
-    if (!file) return res.status(404).json({ message: "Image not found" });
-
-    const readStream = gridfsBucket.openDownloadStream(file._id);
-    readStream.pipe(res);
-  } catch (err) {
-    res.status(500).json({ message: "Error fetching image" });
-  }
-});
-
-// Delete a priest
+// DELETE devotee by ID
 app.delete("/api/devotees/:id", async (req, res) => {
   try {
-    const priest = await Priest.findById(req.params.id);
-    if (!priest) return res.status(404).json({ message: "Priest not found" });
+    const devotee = await Devotee.findById(req.params.id);
+    if (!devotee) return res.status(404).json({ message: "Devotee not found" });
 
-    if (priest.image) {
-      const file = await gfs.files.findOne({ filename: priest.image });
-      if (file) {
-        await gridfsBucket.delete(file._id);
-      }
+    // Delete image from uploads folder
+    if (devotee.image && fs.existsSync(devotee.image)) {
+      fs.unlinkSync(devotee.image);
     }
 
-    await Priest.findByIdAndDelete(req.params.id);
-    res.json({ message: "Priest deleted" });
-  } catch (err) {
-    res.status(500).json({ message: "Error deleting priest" });
+    await Devotee.findByIdAndDelete(req.params.id);
+    res.status(200).json({ message: "Devotee deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Error deleting devotee", error });
   }
 });
 

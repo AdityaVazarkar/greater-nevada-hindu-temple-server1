@@ -20,13 +20,13 @@ const crypto = require("crypto");
 
 // const app = express();
 
-// const JWT_SECRET = process.env.JWT_SECRET;
-// const MONGO_URI = process.env.MONGO_URI;
-// const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET;
+const MONGO_URI = process.env.MONGO_URI;
+const PORT = process.env.PORT || 5000;
 
-// const stripe = new Stripe(
-//   "sk_test_51QNqbPBgGegBsBEaLGeAB50S95sjp7F8XfvTV6WVEaBzsIqd2tfAFUoFQL50ah4NjGOyNmy7JA1Gyyja9OMGd6cf00OJacfIPF"
-// );
+const stripe = new Stripe(
+  "sk_test_51QNqbPBgGegBsBEaLGeAB50S95sjp7F8XfvTV6WVEaBzsIqd2tfAFUoFQL50ah4NjGOyNmy7JA1Gyyja9OMGd6cf00OJacfIPF"
+);
 
 // const JWT_SECRET =
 //   "e9e3a320bcf6c4700866461e82e1146481259a1e28b57e5999ed248cb700041872d89d149a8bafebd4110778057ac6987aa8be88051062a7bf1f5c89a2615b5b";
@@ -66,9 +66,9 @@ const crypto = require("crypto");
 const app = express();
 
 // Configuration - move these to .env file in production!
-const MONGO_URI =
-  "mongodb+srv://asif:asif1234@owner.rnryq.mongodb.net/Owner?retryWrites=true&w=majority";
-const PORT = 5000;
+// const MONGO_URI =
+//   "mongodb+srv://asif:asif1234@owner.rnryq.mongodb.net/Owner?retryWrites=true&w=majority";
+// const PORT = 5000;
 
 // Middleware
 app.use(cors());
@@ -962,8 +962,6 @@ authRouter.get("/validate", (req, res) => {
 
 // Mount the auth router
 app.use("/api/auth", authRouter);
-
-
 
 app.post("/api/devotees", upload.single("image"), async (req, res) => {
   try {

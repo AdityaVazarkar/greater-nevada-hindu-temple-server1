@@ -14,40 +14,149 @@ const fs = require("fs");
 dotenv.config(); // Load environment variables from .env
 const xlsx = require("xlsx");
 const { GridFsStorage } = require("multer-gridfs-storage");
+const { GridFSBucket } = require("mongodb");
 const Grid = require("gridfs-stream");
+const crypto = require("crypto");
+
+// const app = express();
+
+// const JWT_SECRET = process.env.JWT_SECRET;
+// const MONGO_URI = process.env.MONGO_URI;
+// const PORT = process.env.PORT || 5000;
+
+// const stripe = new Stripe(
+//   "sk_test_51QNqbPBgGegBsBEaLGeAB50S95sjp7F8XfvTV6WVEaBzsIqd2tfAFUoFQL50ah4NjGOyNmy7JA1Gyyja9OMGd6cf00OJacfIPF"
+// );
+
+// const JWT_SECRET =
+//   "e9e3a320bcf6c4700866461e82e1146481259a1e28b57e5999ed248cb700041872d89d149a8bafebd4110778057ac6987aa8be88051062a7bf1f5c89a2615b5b";
+// const MONGO_URI =
+//   "mongodb+srv://asif:asif1234@owner.rnryq.mongodb.net/Owner?retryWrites=true&w=majority&appName=Owner";
+// const PORT = 5000; // Default to 5000 if PORT is not set
+
+// Replace with your Stripe secret key
+// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// const stripe = new Stripe(
+//   "sk_test_51QNqbPBgGegBsBEaLGeAB50S95sjp7F8XfvTV6WVEaBzsIqd2tfAFUoFQL50ah4NjGOyNmy7JA1Gyyja9OMGd6cf00OJacfIPF"
+// );
+
+// app.use(cors());
+// app.use(express.json());
+// app.use(bodyParser.urlencoded({ extended: true }));
+// app.use("/uploads", express.static("uploads"));
+
+// // Keep only this one:
+// mongoose
+//   .connect(MONGO_URI)
+//   .then(() => console.log("MongoDB connected"))
+//   .catch((err) => console.error("MongoDB connection error:", err));
+
+// mongoose
+//   .connect(MONGO_URI, {
+//     useNewUrlParser: true,
+//     useUnifiedTopology: true,
+//     serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 10s
+//     socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+//   })
+//   .then(() => {
+//     console.log("MongoDB connected");
+//   })
+//   .catch((err) => console.error("MongoDB connection error:", err));
 
 const app = express();
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const MONGO_URI = process.env.MONGO_URI;
-const PORT = process.env.PORT || 5000;
+// Configuration - move these to .env file in production!
+const MONGO_URI =
+  "mongodb+srv://asif:asif1234@owner.rnryq.mongodb.net/Owner?retryWrites=true&w=majority";
+const PORT = 5000;
 
-const stripe = new Stripe(
-  "sk_test_51QNqbPBgGegBsBEaLGeAB50S95sjp7F8XfvTV6WVEaBzsIqd2tfAFUoFQL50ah4NjGOyNmy7JA1Gyyja9OMGd6cf00OJacfIPF"
-);
-
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use("/uploads", express.static("uploads"));
 
-// Keep only this one:
-mongoose
-  .connect(MONGO_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
+// let gfs;
+// let gridFSBucket;
 
-mongoose
-  .connect(MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 10s
-    socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
-  })
-  .then(() => {
-    console.log("MongoDB connected");
-  })
-  .catch((err) => console.error("MongoDB connection error:", err));
+// // MongoDB connection with retry
+// const connectWithRetry = () => {
+//   mongoose
+//     .connect(MONGO_URI, {
+//       useNewUrlParser: true,
+//       useUnifiedTopology: true,
+//       serverSelectionTimeoutMS: 30000,
+//       socketTimeoutMS: 45000,
+//     })
+//     .then(() => {
+//       console.log("✅ MongoDB connected successfully");
+
+//       // Initialize GridFS
+//       const conn = mongoose.connection;
+//       gridFSBucket = new GridFSBucket(conn.db, {
+//         bucketName: "uploads",
+//       });
+
+//       // For backward compatibility (if needed)
+//       gfs = {
+//         files: conn.db.collection("uploads.files"),
+//         chunks: conn.db.collection("uploads.chunks"),
+//       };
+//     })
+//     .catch((err) => {
+//       console.error("❌ MongoDB connection error:", err.message);
+//       console.log("🔁 Retrying connection in 5 seconds...");
+//       setTimeout(connectWithRetry, 5000);
+//     });
+// };
+
+// Initialize GridFS
+let gfs;
+let gridFSBucket;
+
+// Create storage engine
+const storage = new GridFsStorage({
+  db: mongoose.connection,
+  file: (req, file) => {
+    return new Promise((resolve, reject) => {
+      crypto.randomBytes(16, (err, buf) => {
+        if (err) return reject(err);
+        const filename = buf.toString("hex") + path.extname(file.originalname);
+        resolve({
+          filename: filename,
+          bucketName: "uploads",
+          metadata: {
+            originalName: file.originalname,
+          },
+        });
+      });
+    });
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 20000000 }, // 20MB limit
+});
+
+mongoose.connect(MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+mongoose.connection.once("open", () => {
+  console.log("MongoDB Connected");
+
+  gridFSBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+    bucketName: "uploads",
+  });
+
+  // For legacy gfs access
+  gfs = {
+    files: mongoose.connection.db.collection("uploads.files"),
+    chunks: mongoose.connection.db.collection("uploads.chunks"),
+  };
+});
 
 // MongoDB Schemas and Models
 const EventSchema = new mongoose.Schema({
@@ -110,19 +219,36 @@ const bookingSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-const scheduleSchema = new mongoose.Schema({
-  day: String,
-  time: String,
-  event: String,
-});
+const UploadedFile = mongoose.model(
+  "UploadedFile",
+  new mongoose.Schema({
+    filename: String,
+    contentType: String,
+    uploadedBy: String,
+    fileId: mongoose.Schema.Types.ObjectId,
+    uploadDate: { type: Date, default: Date.now },
+  })
+);
+
+// const DevoteeSchema = new mongoose.Schema(
+//   {
+//     name: { type: String, required: true },
+//     description: { type: String, required: true },
+//     image: { type: String }, // file path
+//   },
+//   { timestamps: true }
+// );
+
 const DevoteeSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     description: { type: String, required: true },
-    image: { type: String }, // file path
+    imageFileId: { type: mongoose.Schema.Types.ObjectId, required: true },
   },
   { timestamps: true }
 );
+
+const Devotee = mongoose.model("Devotee", DevoteeSchema);
 
 const Event = mongoose.model("Event", EventSchema);
 const User = mongoose.model("User", UserSchema);
@@ -130,8 +256,8 @@ const Volunteer = mongoose.model("Volunteer", VolunteerSchema);
 const ContactUs = mongoose.model("ContactUs", ContactUsSchema);
 const Pledge = mongoose.model("Pledge", pledgeSchema);
 const Booking = mongoose.model("Booking", bookingSchema);
-const Schedule = mongoose.model("Schedule", scheduleSchema);
-const Devotee = mongoose.model("Devotee", DevoteeSchema);
+// const Schedule = mongoose.model("Schedule", scheduleSchema);
+// const Devotee = mongoose.model("Devotee", DevoteeSchema);
 
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "1h" });
@@ -196,6 +322,7 @@ mongoose
   })
   .catch((err) => console.error("MongoDB connection error:", err));
 
+// Create User route
 app.post("/create-user", authenticateJWT, isOwner, async (req, res) => {
   const { newUsername, password, role } = req.body;
   if (!["admin", "user"].includes(role)) {
@@ -670,320 +797,154 @@ app.post("/send-otp", async (req, res) => {
       .json({ message: "Error sending OTP", error: error.message });
   }
 });
-// const upload = multer({ storage: multer.memoryStorage() });
 
-// Upload route
-// app.post("/upload", upload.single("file"), async (req, res) => {
-//   if (!req.file) return res.status(400).send("No file uploaded");
+// GridFS storage setup
 
-//   const ext = req.file.originalname.split(".").pop().toLowerCase();
-
-//   let data;
-//   try {
-//     if (ext === "xlsx" || ext === "xls") {
-//       const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
-//       const sheetName = workbook.SheetNames[0];
-//       const sheet = workbook.Sheets[sheetName];
-//       data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
-//     } else if (ext === "csv") {
-//       const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
-//       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-//       data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
-//     } else if (ext === "json") {
-//       data = JSON.parse(req.file.buffer.toString());
-//       if (!Array.isArray(data)) throw new Error("Invalid JSON format");
-//     } else {
-//       return res.status(400).send("Unsupported file format");
-//     }
-//   } catch (error) {
-//     console.error("Parsing error:", error);
-//     return res.status(400).send("Failed to parse uploaded file");
-//   }
-
-//   // Normalize and format data
-//   const formattedData = [];
-
-//   try {
-//     if (Array.isArray(data[0])) {
-//       // Excel or CSV style with headers in row[0]
-//       const headers = data[0];
-//       const timeColumnIndex = 0;
-//       const dayColumns = headers.slice(1);
-
-//       for (let i = 1; i < data.length; i++) {
-//         const row = data[i];
-//         const time = row[timeColumnIndex];
-//         if (!time) continue;
-
-//         dayColumns.forEach((day, dayIndex) => {
-//           const event = row[dayIndex + 1];
-//           if (event && day) {
-//             formattedData.push({
-//               day: day.toString().trim(),
-//               time: time.toString().trim(),
-//               event: event.toString().trim(),
-//             });
-//           }
-//         });
-//       }
-//     } else if (Array.isArray(data)) {
-//       // JSON style: [{ day: 'Monday', time: '9:00 AM', event: 'Yoga' }]
-//       data.forEach((item) => {
-//         if (item.day && item.time && item.event) {
-//           formattedData.push({
-//             day: item.day.toString().trim(),
-//             time: item.time.toString().trim(),
-//             event: item.event.toString().trim(),
-//           });
-//         }
-//       });
-//     }
-//   } catch (processError) {
-//     console.error("Data processing error:", processError);
-//     return res.status(400).send("Error processing file data");
-//   }
-
-//   if (formattedData.length === 0) {
-//     return res.status(400).send("No valid events found");
-//   }
-
-//   // Save to DB
-//   try {
-//     await Schedule.deleteMany();
-//     await Schedule.insertMany(formattedData);
-//     return res.send(`Successfully uploaded ${formattedData.length} events`);
-//   } catch (dbError) {
-//     console.error("DB error:", dbError);
-//     return res.status(500).send("Error saving to database");
-//   }
-// });
-// // Get schedule for a specific day
-// app.get("/schedule/:day", async (req, res) => {
-//   const { day } = req.params;
-//   try {
-//     const events = await Schedule.find({ day }).sort({ time: 1 });
-//     res.json(events);
-//   } catch (error) {
-//     console.error("Error fetching schedule:", error);
-//     res.status(500).send("Error fetching schedule");
-//   }
-// });
-
-// // Delete an event
-// app.delete("/event", async (req, res) => {
-//   const { day, time } = req.body;
-
-//   try {
-//     const deleted = await Schedule.deleteOne({ day, time });
-
-//     if (deleted.deletedCount === 0) {
-//       return res.status(404).send("Event not found");
-//     }
-
-//     res.status(200).send("Event deleted successfully");
-//   } catch (error) {
-//     console.error("Error deleting event:", error);
-//     res.status(500).send("Error deleting event");
-//   }
-// });
-
-let scheduleDatabase = {
-  Monday: [],
-  Tuesday: [],
-  Wednesday: [],
-  Thursday: [],
-  Friday: [],
-  Saturday: [],
-  Sunday: [],
-};
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
-  },
+const conn = mongoose.connection;
+conn.once("open", () => {
+  gridFSBucket = new GridFSBucket(conn.db, {
+    bucketName: "uploads",
+  });
+  gfs = {
+    files: conn.db.collection("uploads.files"),
+    chunks: conn.db.collection("uploads.chunks"),
+  };
+  console.log("GridFS connected");
 });
 
-const upload = multer({ storage });
-
-// Ensure uploads directory exists
-if (!fs.existsSync("uploads")) {
-  fs.mkdirSync("uploads");
-}
-
-// Helper function to convert Excel time to 12-hour format
-const formatTime = (excelTime) => {
-  if (!excelTime) return "";
-
-  // Excel times are fractions of a day (1 = 24 hours)
-  const totalSeconds = excelTime * 24 * 60 * 60;
-  const hours = Math.floor(totalSeconds / 3600) % 24;
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-
-  const period = hours >= 12 ? "pm" : "am";
-  const displayHours = hours % 12 || 12; // Convert 0 to 12
-
-  return `${displayHours}:${minutes.toString().padStart(2, "0")}${period}`;
-};
-
-// API Endpoints
-
-// Upload Excel file
+// Upload route
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).send("No file uploaded");
+      return res.status(400).json({ message: "No file uploaded" });
     }
 
-    const filePath = path.join(__dirname, req.file.path);
-    const workbook = xlsx.readFile(filePath);
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(worksheet);
-
-    // Reset the database
-    scheduleDatabase = {
-      Monday: [],
-      Tuesday: [],
-      Wednesday: [],
-      Thursday: [],
-      Friday: [],
-      Saturday: [],
-      Sunday: [],
-    };
-
-    // Process each row of the Excel file
-    data.forEach((row) => {
-      const days = [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday",
-      ];
-
-      days.forEach((day) => {
-        const time = row["Time"] ? formatTime(row["Time"]) : "";
-        const event = row[day] || "";
-
-        if (event && event.trim() !== "") {
-          scheduleDatabase[day].push({
-            time: time,
-            event: event.trim(),
-          });
-        }
-      });
+    res.status(200).json({
+      message: "File uploaded successfully",
+      file: {
+        id: req.file.id,
+        filename: req.file.filename,
+        size: req.file.size,
+        contentType: req.file.contentType,
+      },
     });
-
-    // Sort events by time for each day
-    Object.keys(scheduleDatabase).forEach((day) => {
-      scheduleDatabase[day].sort((a, b) => {
-        const timeA = a.time.toLowerCase();
-        const timeB = b.time.toLowerCase();
-
-        // Simple string comparison for sorting (you might want to improve this)
-        if (timeA.includes("am") && timeB.includes("pm")) return -1;
-        if (timeA.includes("pm") && timeB.includes("am")) return 1;
-
-        return timeA.localeCompare(timeB);
-      });
-    });
-
-    // Delete the uploaded file after processing
-    fs.unlinkSync(filePath);
-
-    res.status(200).send("Schedule updated successfully");
-  } catch (error) {
-    console.error("Error processing file:", error);
-    res.status(500).send("Error processing file");
+  } catch (err) {
+    console.error("Upload error:", err);
+    res.status(500).json({ message: "Upload failed", error: err.message });
   }
 });
 
-// Get all events
-app.get("/events", (req, res) => {
-  res.json(scheduleDatabase);
-});
-
-// Get schedule for a specific day
-app.get("/schedule/:day", (req, res) => {
-  const day = req.params.day;
-  if (scheduleDatabase[day]) {
-    res.json(scheduleDatabase[day]);
-  } else {
-    res.status(404).send("Day not found");
-  }
-});
-
-// Add a new event
-app.post("/event", (req, res) => {
-  const { day, time, event } = req.body;
-
-  if (!day || !time || !event) {
-    return res.status(400).send("Missing required fields");
-  }
-
-  if (!scheduleDatabase[day]) {
-    return res.status(400).send("Invalid day");
-  }
-
-  scheduleDatabase[day].push({ time, event });
-  res.status(201).send("Event added successfully");
-});
-
-// Delete an event
-app.delete("/event", (req, res) => {
-  const { day, time } = req.body;
-
-  if (!day || !time) {
-    return res.status(400).send("Missing required fields");
-  }
-
-  if (!scheduleDatabase[day]) {
-    return res.status(400).send("Invalid day");
-  }
-
-  const initialLength = scheduleDatabase[day].length;
-  scheduleDatabase[day] = scheduleDatabase[day].filter((e) => e.time !== time);
-
-  if (scheduleDatabase[day].length === initialLength) {
-    return res.status(404).send("Event not found");
-  }
-
-  res.send("Event deleted successfully");
-});
-
-// Route to update an event by day and time
-// Edit event route
-// Edit event route
-app.put("/event", async (req, res) => {
-  const { day, oldTime, newTime, newEvent } = req.body;
-
+// Get all files
+app.get("/files", async (req, res) => {
   try {
-    // Update the event matching the day and oldTime
-    const updated = await Schedule.updateOne(
-      { day, time: oldTime },
-      { $set: { time: newTime, event: newEvent } }
-    );
-
-    if (updated.nModified === 0) {
-      return res.status(404).send("Event not found");
+    const files = await gfs.files.find().toArray();
+    if (!files || files.length === 0) {
+      return res.status(404).json({ message: "No files found" });
     }
-
-    res.status(200).send("Event updated successfully");
-  } catch (error) {
-    console.error("Error updating event:", error);
-    res.status(500).send("Error updating event");
+    res.json(files);
+  } catch (err) {
+    res
+      .status(500)
+      .json({ message: "Error fetching files", error: err.message });
   }
 });
 
-// ... (your existing imports and setup)
+// Download file
+app.get("/file/:filename", async (req, res) => {
+  try {
+    const file = await gfs.files.findOne({ filename: req.params.filename });
+    if (!file) {
+      return res.status(404).json({ message: "File not found" });
+    }
 
-// Add this right before your other routes (around line 200, before the login route)
+    res.set("Content-Type", file.contentType);
+    res.set("Content-Disposition", `attachment; filename="${file.filename}"`);
+
+    const downloadStream = gridFSBucket.openDownloadStream(file._id);
+    downloadStream.pipe(res);
+  } catch (err) {
+    res
+      .status(500)
+      .json({ message: "Error downloading file", error: err.message });
+  }
+});
+
+// Delete file
+app.delete("/file/:id", async (req, res) => {
+  try {
+    const file = await gfs.files.findOne({
+      _id: new mongoose.Types.ObjectId(req.params.id),
+    });
+    if (!file) {
+      return res.status(404).json({ message: "File not found" });
+    }
+
+    await gridFSBucket.delete(file._id);
+    res.json({ message: "File deleted successfully" });
+  } catch (err) {
+    res
+      .status(500)
+      .json({ message: "Error deleting file", error: err.message });
+  }
+});
+
+// event
+
+const eventSchema = new mongoose.Schema({
+  time: String, // e.g., "6:00 AM"
+  eventName: String,
+});
+
+const scheduleSchema = new mongoose.Schema({
+  day: { type: String, required: true, unique: true }, // "Monday", "Tuesday", ...
+  events: [eventSchema], // array of events for that day
+});
+
+const Schedule = mongoose.model("Schedule", scheduleSchema);
+
+// Create or update full day schedule
+app.post("/api/schedule", authenticateJWT, isOwnerOrAdmin, async (req, res) => {
+  const { day, events } = req.body;
+  if (!day || !events) {
+    return res.status(400).json({ message: "Day and events are required" });
+  }
+  try {
+    // Upsert (update if exists, insert if not)
+    const schedule = await Schedule.findOneAndUpdate(
+      { day },
+      { day, events },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    res.json(schedule);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get schedule by day
+app.get("/api/schedule/:day", async (req, res) => {
+  try {
+    const schedule = await Schedule.findOne({ day: req.params.day });
+    if (!schedule) {
+      return res.status(404).json({ message: "Schedule not found" });
+    }
+    res.json(schedule);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Node.js Express example
+app.delete("/api/schedule/:day", async (req, res) => {
+  const { day } = req.params;
+  try {
+    await ScheduleModel.findOneAndDelete({ day }); // or clear events array if you prefer
+    res.status(200).json({ message: "Schedule deleted" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete schedule" });
+  }
+});
+
 const authRouter = express.Router();
 authRouter.get("/validate", (req, res) => {
   const authHeader = req.headers.authorization;
@@ -1002,28 +963,33 @@ authRouter.get("/validate", (req, res) => {
 // Mount the auth router
 app.use("/api/auth", authRouter);
 
-// Route to add devotee
+
+
 app.post("/api/devotees", upload.single("image"), async (req, res) => {
   try {
-    const { name, description } = req.body;
-    const imagePath = req.file ? req.file.path : null;
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    console.log("Uploaded file:", req.file); // Debug log
 
     const newDevotee = new Devotee({
-      name,
-      description,
-      image: imagePath,
+      name: req.body.name,
+      description: req.body.description,
+      imageFileId: req.file.id,
     });
 
     await newDevotee.save();
-    res
-      .status(201)
-      .json({ message: "Devotee added successfully", devotee: newDevotee });
+    res.status(201).json(newDevotee);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error });
+    console.error("Upload error:", error);
+    res.status(500).json({
+      error: "Upload failed",
+      details: error.message,
+    });
   }
 });
 
-// Route to get all devotees
 app.get("/api/devotees", async (req, res) => {
   try {
     const devotees = await Devotee.find();
@@ -1032,21 +998,62 @@ app.get("/api/devotees", async (req, res) => {
     res.status(500).json({ message: "Error fetching devotees", error });
   }
 });
-// const fs = require("fs");
 
-// DELETE devotee by ID
+app.get("/api/devotees/:id/image", async (req, res) => {
+  try {
+    const devotee = await Devotee.findById(req.params.id);
+    if (!devotee || !devotee.imageFileId) {
+      return res.status(404).json({ message: "Image not found" });
+    }
+
+    const file = await gfs.files.findOne({ _id: devotee.imageFileId });
+    if (!file) {
+      return res
+        .status(404)
+        .json({ message: "Image file not found in GridFS" });
+    }
+
+    res.set("Content-Type", file.contentType);
+    const stream = gridFSBucket.openDownloadStream(devotee.imageFileId);
+    stream.pipe(res);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching image", error });
+  }
+});
+
+// Express route to serve GridFS file
+app.get("/file/:filename", async (req, res) => {
+  try {
+    const files = await gridFSBucket
+      .find({ filename: req.params.filename })
+      .toArray();
+
+    if (!files || files.length === 0) {
+      return res.status(404).json({ message: "File not found" });
+    }
+
+    const file = files[0];
+
+    res.set("Content-Type", file.contentType);
+    gridFSBucket.openDownloadStreamByName(req.params.filename).pipe(res);
+  } catch (err) {
+    console.error("Error serving file:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 app.delete("/api/devotees/:id", async (req, res) => {
   try {
     const devotee = await Devotee.findById(req.params.id);
     if (!devotee) return res.status(404).json({ message: "Devotee not found" });
 
-    // Delete image from uploads folder
-    if (devotee.image && fs.existsSync(devotee.image)) {
-      fs.unlinkSync(devotee.image);
+    // Delete image from GridFS
+    if (devotee.imageFileId) {
+      await gridFSBucket.delete(devotee.imageFileId);
     }
 
     await Devotee.findByIdAndDelete(req.params.id);
-    res.status(200).json({ message: "Devotee deleted" });
+    res.status(200).json({ message: "Devotee and image deleted" });
   } catch (error) {
     res.status(500).json({ message: "Error deleting devotee", error });
   }

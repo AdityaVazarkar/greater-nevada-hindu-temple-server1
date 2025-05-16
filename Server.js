@@ -76,39 +76,7 @@ app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use("/uploads", express.static("uploads"));
 
-// let gfs;
-// let gridFSBucket;
 
-// // MongoDB connection with retry
-// const connectWithRetry = () => {
-//   mongoose
-//     .connect(MONGO_URI, {
-//       useNewUrlParser: true,
-//       useUnifiedTopology: true,
-//       serverSelectionTimeoutMS: 30000,
-//       socketTimeoutMS: 45000,
-//     })
-//     .then(() => {
-//       console.log("✅ MongoDB connected successfully");
-
-//       // Initialize GridFS
-//       const conn = mongoose.connection;
-//       gridFSBucket = new GridFSBucket(conn.db, {
-//         bucketName: "uploads",
-//       });
-
-//       // For backward compatibility (if needed)
-//       gfs = {
-//         files: conn.db.collection("uploads.files"),
-//         chunks: conn.db.collection("uploads.chunks"),
-//       };
-//     })
-//     .catch((err) => {
-//       console.error("❌ MongoDB connection error:", err.message);
-//       console.log("🔁 Retrying connection in 5 seconds...");
-//       setTimeout(connectWithRetry, 5000);
-//     });
-// };
 
 // Initialize GridFS
 let gfs;
@@ -230,14 +198,7 @@ const UploadedFile = mongoose.model(
   })
 );
 
-// const DevoteeSchema = new mongoose.Schema(
-//   {
-//     name: { type: String, required: true },
-//     description: { type: String, required: true },
-//     image: { type: String }, // file path
-//   },
-//   { timestamps: true }
-// );
+
 
 const DevoteeSchema = new mongoose.Schema(
   {
@@ -890,59 +851,159 @@ app.delete("/file/:id", async (req, res) => {
 
 // event
 
+// Days of week for validation
+const daysOfWeek = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+// Mongoose Schemas
 const eventSchema = new mongoose.Schema({
-  time: String, // e.g., "6:00 AM"
-  eventName: String,
+  time: {
+    type: String,
+    required: [true, "Time is required"],
+    match: [
+      /^\d{1,2}:\d{2}\s*(AM|PM)?$/i,
+      'Please use valid time format (e.g. "9:00 AM")',
+    ],
+  },
+  eventName: {
+    type: String,
+    required: [true, "Event name is required"],
+    minlength: [3, "Event name must be at least 3 characters"],
+  },
 });
 
 const scheduleSchema = new mongoose.Schema({
-  day: { type: String, required: true, unique: true }, // "Monday", "Tuesday", ...
-  events: [eventSchema], // array of events for that day
+  day: {
+    type: String,
+    required: [true, "Day is required"],
+    unique: true,
+    enum: {
+      values: daysOfWeek,
+      message: "{VALUE} is not a valid day",
+    },
+  },
+  events: [eventSchema],
 });
+
+// Create index
+scheduleSchema.index({ day: 1 }, { unique: true });
 
 const Schedule = mongoose.model("Schedule", scheduleSchema);
 
-// Create or update full day schedule
-app.post("/api/schedule", authenticateJWT, isOwnerOrAdmin, async (req, res) => {
-  const { day, events } = req.body;
-  if (!day || !events) {
-    return res.status(400).json({ message: "Day and events are required" });
-  }
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+// Routes
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "OK",
+    dbState: mongoose.connection.readyState,
+    dbName: mongoose.connection.name,
+  });
+});
+
+app.post("/api/schedule", async (req, res) => {
   try {
-    // Upsert (update if exists, insert if not)
+    const { day, events } = req.body;
+
+    if (!day) return res.status(400).json({ message: "Day is required" });
+    if (!events || !Array.isArray(events)) {
+      return res.status(400).json({ message: "Events must be an array" });
+    }
+
+    const normalizedDay =
+      day.trim().charAt(0).toUpperCase() + day.trim().slice(1).toLowerCase();
+
     const schedule = await Schedule.findOneAndUpdate(
-      { day },
-      { day, events },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { day: normalizedDay },
+      { day: normalizedDay, events },
+      {
+        upsert: true,
+        new: true,
+        runValidators: true,
+      }
     );
+
     res.json(schedule);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Error:", error);
+    if (error.name === "ValidationError") {
+      const messages = Object.values(error.errors).map((val) => val.message);
+      return res
+        .status(400)
+        .json({ message: "Validation error", errors: messages });
+    }
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
-// Get schedule by day
 app.get("/api/schedule/:day", async (req, res) => {
   try {
-    const schedule = await Schedule.findOne({ day: req.params.day });
-    if (!schedule) {
+    const normalizedDay =
+      req.params.day.trim().charAt(0).toUpperCase() +
+      req.params.day.trim().slice(1).toLowerCase();
+    const schedule = await Schedule.findOne({ day: normalizedDay });
+
+    if (!schedule)
       return res.status(404).json({ message: "Schedule not found" });
-    }
     res.json(schedule);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-// Node.js Express example
 app.delete("/api/schedule/:day", async (req, res) => {
-  const { day } = req.params;
   try {
-    await ScheduleModel.findOneAndDelete({ day }); // or clear events array if you prefer
-    res.status(200).json({ message: "Schedule deleted" });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to delete schedule" });
+    const normalizedDay =
+      req.params.day.trim().charAt(0).toUpperCase() +
+      req.params.day.trim().slice(1).toLowerCase();
+    const result = await Schedule.findOneAndDelete({ day: normalizedDay });
+
+    if (!result) return res.status(404).json({ message: "Schedule not found" });
+    res.json({ message: `Schedule for ${normalizedDay} deleted` });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
+});
+
+app.delete("/api/schedule/:day/event/:time", async (req, res) => {
+  try {
+    const normalizedDay =
+      req.params.day.trim().charAt(0).toUpperCase() +
+      req.params.day.trim().slice(1).toLowerCase();
+    const { time } = req.params;
+
+    const schedule = await Schedule.findOne({ day: normalizedDay });
+    if (!schedule)
+      return res.status(404).json({ message: "Schedule not found" });
+
+    const initialLength = schedule.events.length;
+    schedule.events = schedule.events.filter((event) => event.time !== time);
+
+    if (schedule.events.length === initialLength) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+
+    await schedule.save();
+    res.json({ message: "Event deleted", schedule });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: "Something broke!" });
 });
 
 const authRouter = express.Router();

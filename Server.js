@@ -76,8 +76,6 @@ app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use("/uploads", express.static("uploads"));
 
-
-
 // Initialize GridFS
 let gfs;
 let gridFSBucket;
@@ -197,8 +195,6 @@ const UploadedFile = mongoose.model(
     uploadDate: { type: Date, default: Date.now },
   })
 );
-
-
 
 const DevoteeSchema = new mongoose.Schema(
   {
@@ -852,6 +848,154 @@ app.delete("/file/:id", async (req, res) => {
 // event
 
 // Days of week for validation
+// const daysOfWeek = [
+//   "Monday",
+//   "Tuesday",
+//   "Wednesday",
+//   "Thursday",
+//   "Friday",
+//   "Saturday",
+//   "Sunday",
+// ];
+// // Mongoose Schemas
+// const eventSchema = new mongoose.Schema({
+//   time: {
+//     type: String,
+//     required: [true, "Time is required"],
+//     match: [
+//       /^\d{1,2}:\d{2}\s*(AM|PM)?$/i,
+//       'Please use valid time format (e.g. "9:00 AM")',
+//     ],
+//   },
+//   eventName: {
+//     type: String,
+//     required: [true, "Event name is required"],
+//     minlength: [3, "Event name must be at least 3 characters"],
+//   },
+// });
+
+// const scheduleSchema = new mongoose.Schema({
+//   day: {
+//     type: String,
+//     required: [true, "Day is required"],
+//     unique: true,
+//     enum: {
+//       values: daysOfWeek,
+//       message: "{VALUE} is not a valid day",
+//     },
+//   },
+//   events: [eventSchema],
+// });
+
+// // Create index
+// scheduleSchema.index({ day: 1 }, { unique: true });
+
+// const Schedule = mongoose.model("Schedule", scheduleSchema);
+
+// // Request logging
+// app.use((req, res, next) => {
+//   console.log(`${req.method} ${req.path}`);
+//   next();
+// });
+
+// // Routes
+// app.get("/api/health", (req, res) => {
+//   res.json({
+//     status: "OK",
+//     dbState: mongoose.connection.readyState,
+//     dbName: mongoose.connection.name,
+//   });
+// });
+
+// app.post("/api/schedule", async (req, res) => {
+//   try {
+//     const { day, events } = req.body;
+
+//     if (!day) return res.status(400).json({ message: "Day is required" });
+//     if (!events || !Array.isArray(events)) {
+//       return res.status(400).json({ message: "Events must be an array" });
+//     }
+
+//     const normalizedDay =
+//       day.trim().charAt(0).toUpperCase() + day.trim().slice(1).toLowerCase();
+
+//     const schedule = await Schedule.findOneAndUpdate(
+//       { day: normalizedDay },
+//       { day: normalizedDay, events },
+//       {
+//         upsert: true,
+//         new: true,
+//         runValidators: true,
+//       }
+//     );
+
+//     res.json(schedule);
+//   } catch (error) {
+//     console.error("Error:", error);
+//     if (error.name === "ValidationError") {
+//       const messages = Object.values(error.errors).map((val) => val.message);
+//       return res
+//         .status(400)
+//         .json({ message: "Validation error", errors: messages });
+//     }
+//     res.status(500).json({ message: "Server error", error: error.message });
+//   }
+// });
+
+// app.get("/api/schedule/:day", async (req, res) => {
+//   try {
+//     const normalizedDay =
+//       req.params.day.trim().charAt(0).toUpperCase() +
+//       req.params.day.trim().slice(1).toLowerCase();
+//     const schedule = await Schedule.findOne({ day: normalizedDay });
+
+//     if (!schedule)
+//       return res.status(404).json({ message: "Schedule not found" });
+//     res.json(schedule);
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// });
+
+// app.delete("/api/schedule/:day", async (req, res) => {
+//   try {
+//     const normalizedDay =
+//       req.params.day.trim().charAt(0).toUpperCase() +
+//       req.params.day.trim().slice(1).toLowerCase();
+//     const result = await Schedule.findOneAndDelete({ day: normalizedDay });
+
+//     if (!result) return res.status(404).json({ message: "Schedule not found" });
+//     res.json({ message: `Schedule for ${normalizedDay} deleted` });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// });
+
+// app.delete("/api/schedule/:day/event/:time", async (req, res) => {
+//   try {
+//     const normalizedDay =
+//       req.params.day.trim().charAt(0).toUpperCase() +
+//       req.params.day.trim().slice(1).toLowerCase();
+//     const { time } = req.params;
+
+//     const schedule = await Schedule.findOne({ day: normalizedDay });
+//     if (!schedule)
+//       return res.status(404).json({ message: "Schedule not found" });
+
+//     const initialLength = schedule.events.length;
+//     schedule.events = schedule.events.filter((event) => event.time !== time);
+
+//     if (schedule.events.length === initialLength) {
+//       return res.status(404).json({ message: "Event not found" });
+//     }
+
+//     await schedule.save();
+//     res.json({ message: "Event deleted", schedule });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// });
+
 const daysOfWeek = [
   "Monday",
   "Tuesday",
@@ -861,7 +1005,8 @@ const daysOfWeek = [
   "Saturday",
   "Sunday",
 ];
-// Mongoose Schemas
+
+// Event schema
 const eventSchema = new mongoose.Schema({
   time: {
     type: String,
@@ -878,24 +1023,53 @@ const eventSchema = new mongoose.Schema({
   },
 });
 
+// Schedule schema
 const scheduleSchema = new mongoose.Schema({
+  date: {
+    type: Date,
+    required: [true, "Date is required"],
+    unique: true,
+    validate: {
+      validator: function (v) {
+        return v instanceof Date && !isNaN(v);
+      },
+      message: "Invalid date format",
+    },
+  },
   day: {
     type: String,
-    required: [true, "Day is required"],
-    unique: true,
-    enum: {
-      values: daysOfWeek,
-      message: "{VALUE} is not a valid day",
-    },
+    enum: daysOfWeek,
+    required: true,
   },
   events: [eventSchema],
 });
 
-// Create index
-scheduleSchema.index({ day: 1 }, { unique: true });
+// Middleware to set `day` before saving
+scheduleSchema.pre("save", function (next) {
+  if (this.date) {
+    const dayIndex = this.date.getDay();
+    this.day = daysOfWeek[(dayIndex + 6) % 7]; // Adjust Sunday=0 to Monday=0
+  }
+  next();
+});
+
+// Middleware to set `day` before findOneAndUpdate
+scheduleSchema.pre("findOneAndUpdate", function (next) {
+  const update = this.getUpdate();
+
+  if (update.date) {
+    const dayIndex = new Date(update.date).getDay();
+    update.day = daysOfWeek[(dayIndex + 6) % 7];
+  }
+  next();
+});
+
+// Create index on date (unique)
+scheduleSchema.index({ date: 1 }, { unique: true });
+
+// Make sure there's NO unique index on `day` to avoid your error
 
 const Schedule = mongoose.model("Schedule", scheduleSchema);
-
 
 // Request logging
 app.use((req, res, next) => {
@@ -914,19 +1088,21 @@ app.get("/api/health", (req, res) => {
 
 app.post("/api/schedule", async (req, res) => {
   try {
-    const { day, events } = req.body;
+    const { date, events } = req.body;
 
-    if (!day) return res.status(400).json({ message: "Day is required" });
+    if (!date) return res.status(400).json({ message: "Date is required" });
     if (!events || !Array.isArray(events)) {
       return res.status(400).json({ message: "Events must be an array" });
     }
 
-    const normalizedDay =
-      day.trim().charAt(0).toUpperCase() + day.trim().slice(1).toLowerCase();
+    const scheduleDate = new Date(date);
+    if (isNaN(scheduleDate.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
 
     const schedule = await Schedule.findOneAndUpdate(
-      { day: normalizedDay },
-      { day: normalizedDay, events },
+      { date: scheduleDate },
+      { date: scheduleDate, events },
       {
         upsert: true,
         new: true,
@@ -947,45 +1123,84 @@ app.post("/api/schedule", async (req, res) => {
   }
 });
 
-app.get("/api/schedule/:day", async (req, res) => {
+// Get schedule by date (YYYY-MM-DD format)
+app.get("/api/schedule/:date", async (req, res) => {
   try {
-    const normalizedDay =
-      req.params.day.trim().charAt(0).toUpperCase() +
-      req.params.day.trim().slice(1).toLowerCase();
-    const schedule = await Schedule.findOne({ day: normalizedDay });
+    const scheduleDate = new Date(req.params.date);
+    if (isNaN(scheduleDate.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
 
-    if (!schedule)
+    const schedule = await Schedule.findOne({ date: scheduleDate });
+    if (!schedule) {
       return res.status(404).json({ message: "Schedule not found" });
+    }
     res.json(schedule);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-app.delete("/api/schedule/:day", async (req, res) => {
+// Get all schedules within a date range
+app.get("/api/schedules", async (req, res) => {
   try {
-    const normalizedDay =
-      req.params.day.trim().charAt(0).toUpperCase() +
-      req.params.day.trim().slice(1).toLowerCase();
-    const result = await Schedule.findOneAndDelete({ day: normalizedDay });
+    const { startDate, endDate } = req.query;
 
-    if (!result) return res.status(404).json({ message: "Schedule not found" });
-    res.json({ message: `Schedule for ${normalizedDay} deleted` });
+    if (!startDate || !endDate) {
+      return res
+        .status(400)
+        .json({ message: "Both startDate and endDate are required" });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
+
+    const schedules = await Schedule.find({
+      date: { $gte: start, $lte: end },
+    }).sort({ date: 1 });
+
+    res.json(schedules);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-app.delete("/api/schedule/:day/event/:time", async (req, res) => {
+app.delete("/api/schedule/:date", async (req, res) => {
   try {
-    const normalizedDay =
-      req.params.day.trim().charAt(0).toUpperCase() +
-      req.params.day.trim().slice(1).toLowerCase();
-    const { time } = req.params;
+    const scheduleDate = new Date(req.params.date);
+    if (isNaN(scheduleDate.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
 
-    const schedule = await Schedule.findOne({ day: normalizedDay });
-    if (!schedule)
+    const result = await Schedule.findOneAndDelete({ date: scheduleDate });
+    if (!result) return res.status(404).json({ message: "Schedule not found" });
+
+    res.json({
+      message: `Schedule for ${
+        scheduleDate.toISOString().split("T")[0]
+      } deleted`,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete("/api/schedule/:date/event/:time", async (req, res) => {
+  try {
+    const scheduleDate = new Date(req.params.date);
+    if (isNaN(scheduleDate.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
+
+    const { time } = req.params;
+    const schedule = await Schedule.findOne({ date: scheduleDate });
+    if (!schedule) {
       return res.status(404).json({ message: "Schedule not found" });
+    }
 
     const initialLength = schedule.events.length;
     schedule.events = schedule.events.filter((event) => event.time !== time);
@@ -996,6 +1211,22 @@ app.delete("/api/schedule/:day/event/:time", async (req, res) => {
 
     await schedule.save();
     res.json({ message: "Event deleted", schedule });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Helper endpoint to get day of week for a date
+app.get("/api/day-of-week/:date", (req, res) => {
+  try {
+    const date = new Date(req.params.date);
+    if (isNaN(date.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
+
+    const dayIndex = date.getDay();
+    const day = daysOfWeek[(dayIndex + 6) % 7]; // Adjust for our daysOfWeek array
+    res.json({ date: req.params.date, day });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
